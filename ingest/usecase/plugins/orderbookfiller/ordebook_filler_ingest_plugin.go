@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 // orderbookFillerIngestPlugin is a plugin that fills the orderbook orders at the end of the block.
@@ -32,7 +33,7 @@ type orderbookFillerIngestPlugin struct {
 
 	passthroughGRPCClient passthroughdomain.PassthroughGRPCClient
 
-	orderbookCWAAPIClient orderbookplugindomain.OrderbookCWAPIClient
+	orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient
 
 	atomicBool atomic.Bool
 
@@ -67,7 +68,7 @@ func New(poolsUseCase mvc.PoolsUsecase, routerUseCase mvc.RouterUsecase, tokensU
 		tokensUseCase: tokensUseCase,
 
 		passthroughGRPCClient: passthroughGRPCClient,
-		orderbookCWAAPIClient: orderBookCWAPIClient,
+		orderbookCWAPIClient:  orderBookCWAPIClient,
 
 		atomicBool: atomic.Bool{},
 
@@ -93,16 +94,8 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 		return err
 	}
 
-	// TODO: encapsulate and parallelize this
 	// Fetch ticks for all the orderbooks
-	for _, canonicalOrderbookResult := range canonicalOrderbooks {
-		if _, ok := metadata.PoolIDs[canonicalOrderbookResult.PoolID]; ok {
-			if err := o.fetchTicksForOrderbook(ctx, canonicalOrderbookResult); err != nil {
-				o.logger.Error("failed to fetch ticks for orderbook", zap.Error(err), zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
-				return err
-			}
-		}
-	}
+	o.fetchTicksForModifiedOrderbooks(ctx, &metadata.PoolIDs, canonicalOrderbooks)
 
 	// For simplicity, we allow only one block to be processed at a time.
 	// This may be relaxed in the future.
@@ -190,6 +183,31 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 	}
 
 	o.logger.Info("processed end block in orderbook filler ingest plugin", zap.Uint64("block_height", blockHeight))
+	return nil
+}
+
+// fetchTicksForModifiedOrderbooks fetches updated ticks for pools updated in the last block concurrently per each modified pool
+func (o *orderbookFillerIngestPlugin) fetchTicksForModifiedOrderbooks(ctx context.Context, blockUpdatedPools *map[uint64]struct{}, canonicalOrderbooks []domain.CanonicalOrderBooksResult) error {
+	g, ctx := errgroup.WithContext(ctx)
+
+	for _, canonicalOrderbookResult := range canonicalOrderbooks {
+		if _, ok := (*blockUpdatedPools)[canonicalOrderbookResult.PoolID]; ok {
+			orderbookResult := canonicalOrderbookResult // Create local copy to avoid closure issues
+			g.Go(func() error {
+				// Fetch ticks and return error if it occurs
+				if err := o.fetchTicksForOrderbook(ctx, orderbookResult); err != nil {
+					o.logger.Error("failed to fetch ticks for orderbook", zap.Error(err), zap.Uint64("orderbook_id", orderbookResult.PoolID))
+					return err
+				}
+				return nil
+			})
+		}
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

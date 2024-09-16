@@ -20,7 +20,7 @@ func (o *orderbookFillerIngestPlugin) fetchTicksForOrderbook(ctx context.Context
 		BidOrders: []orderbookplugindomain.Order{},
 	}
 	for _, tick := range ticks {
-		orders, err := o.orderbookCWAAPIClient.GetOrdersByTick(ctx, orderbook.ContractAddress, tick.TickId)
+		orders, err := o.orderbookCWAPIClient.GetOrdersByTick(ctx, orderbook.ContractAddress, tick.TickId)
 		if err != nil {
 			continue
 		}
