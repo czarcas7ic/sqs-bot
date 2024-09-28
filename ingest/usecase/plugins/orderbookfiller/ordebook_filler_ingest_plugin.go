@@ -2,6 +2,7 @@ package orderbookfiller
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -172,7 +173,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 				curTxCtx := txctx.New()
 
 				// Add the message to the transaction context
-				curTxCtx.AddMsg(msg)
+				curTxCtx.AddMsg(msg, false)
 
 				// Try to fill the message
 				if err := o.tryFill(blockCtx); err != nil {
@@ -280,7 +281,7 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 		o.logger.Info("passed orderbook asks", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
 	}
 
-	// Validae arb trying to fill bid liquidity
+	// Validate arb trying to fill bid liquidity
 	if _, err := o.computePerfectArbAmountIfExists(ctx, fillableBidAmountBaseDenom, canonicalOrderbookResult.Base, canonicalOrderbookResult.Quote, canonicalOrderbookResult.PoolID); err != nil {
 		o.logger.Error("failed to fill bids", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID), zap.Error(err))
 	} else {
@@ -317,9 +318,15 @@ func (o *orderbookFillerIngestPlugin) computePerfectArbAmountIfExists(ctx blockc
 		return proposedAmountIn, nil
 	}
 
+	// fill high value routes immediately
+	if !msgCtx.IsLowValue() {
+		o.fillImmediate(ctx, msgCtx)
+		panic("filled immediately, panicking to avoid possible issues")
+	}
+
 	// If profitable, execute add the message to the transaction context
 	txCtx := ctx.GetTxCtx()
-	txCtx.AddMsg(msgCtx)
+	txCtx.AddMsg(msgCtx, false)
 
 	return result, nil
 }
@@ -371,10 +378,38 @@ func (o *orderbookFillerIngestPlugin) tryFill(ctx blockctx.BlockCtxI) error {
 	txCtx.UpdateAdjustedGasTotal(adjustedGasAmount)
 
 	// Execute the swap
-	_, _, err = o.executeTx(ctx)
+	_, _, err = o.executeTx(ctx.AsGoCtx(), ctx.GetBlockHeight(), ctx.GetGasPrice(), ctx.GetTxCtx())
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// fillImmediate executes a message immediately
+func (o *orderbookFillerIngestPlugin) fillImmediate(ctx blockctx.BlockCtxI, msgCtx msgctx.MsgContextI) error {
+	// Create a new transaction context for this immediate fill
+	immediateTxCtx := txctx.New()
+	immediateTxCtx.AddMsg(msgCtx, true)
+
+	// skip simulation because it was just simulated
+
+	// Update the adjusted gas amount
+	newAdjustedGasUsedTotal := immediateTxCtx.GetAdjustedGasUsedTotal() * 110 / 100
+	immediateTxCtx.UpdateAdjustedGasTotal(newAdjustedGasUsedTotal) // scale adjusted gas total by 10% for robustness
+
+	// Execute the transaction
+	resp, _, err := o.executeTx(ctx.AsGoCtx(), ctx.GetBlockHeight(), ctx.GetGasPrice(), immediateTxCtx)
+	if err != nil {
+		return fmt.Errorf("failed to execute immediate fill transaction: %w", err)
+	}
+
+	// Log the transaction result
+	o.logger.Info("Executed immediate fill transaction",
+		zap.Uint32("code", resp.Code),
+		zap.String("hash", string(resp.Hash)),
+		zap.String("log", resp.Log),
+		zap.String("gas_used", fmt.Sprintf("%d", newAdjustedGasUsedTotal)))
 
 	return nil
 }

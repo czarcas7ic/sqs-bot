@@ -64,7 +64,7 @@ func NewIngestGRPCHandler(us mvc.IngestUsecase, grpcIngesterConfig domain.GRPCIn
 	return grpcServer, nil
 }
 
-// ProcessChainPools implements types.IngesterServer.
+// ProcessBlock implements types.IngesterServer.
 func (i *IngestGRPCHandler) ProcessBlock(ctx context.Context, req *prototypes.ProcessBlockRequest) (*prototypes.ProcessBlockReply, error) {
 	takerFeeMap := sqsdomain.TakerFeeMap{}
 
