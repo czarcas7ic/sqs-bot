@@ -130,7 +130,18 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 	resultChan := make(chan orderBookProcessResult, len(canonicalOrderbooks))
 	defer close(resultChan)
 
+	skippedOrderbooks := 0
 	for _, canonicalOrderbook := range canonicalOrderbooks {
+		// skip orderbooks that already do not meet this requirement
+		// TODO: only makes sense if the address used has small amount of operable tokens
+		if err := o.validateUserBalances(blockCtx, canonicalOrderbook.Base, canonicalOrderbook.Quote); err != nil {
+			o.logger.Info("Skipping orderbook due to insufficient balance",
+				zap.Error(err))
+
+			skippedOrderbooks++
+			continue
+		}
+
 		go func(canonicalOrderbook domain.CanonicalOrderBooksResult) {
 			var err error
 
@@ -146,7 +157,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 	}
 
 	// Collect all the results
-	for i := 0; i < len(canonicalOrderbooks); i++ {
+	for i := 0; i < len(canonicalOrderbooks)-skippedOrderbooks; i++ {
 		select {
 		case result := <-resultChan:
 			if result.err != nil {
@@ -249,11 +260,6 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 
 	span.SetAttributes(attribute.Int64("orderbook_id", int64(canonicalOrderbookResult.PoolID)))
 
-	// Validate user balances meeting minimum threshold.
-	if err := o.validateUserBalances(ctx, baseDenom, quoteDenom); err != nil {
-		return err
-	}
-
 	// Compute fillable amounts for the order book.
 	fillableAskAmountQuoteDenom, fillableBidAmountBaseDenom, err := o.getFillableOrders(ctx, canonicalOrderbookResult)
 	if err != nil {
@@ -274,19 +280,31 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 		o.logger.Warn("user balance less than fillable bid amount", zap.String("base_denom", baseDenom), zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
 	}
 
+	// wait group for ask and bid liquidity fullfilment checks
+	fillWg := sync.WaitGroup{}
+	fillWg.Add(2)
+
 	// Validate arb trying to fill ask liquidity.
-	if _, err := o.computePerfectArbAmountIfExists(ctx, fillableAskAmountQuoteDenom, canonicalOrderbookResult.Quote, canonicalOrderbookResult.Base, canonicalOrderbookResult.PoolID); err != nil {
-		o.logger.Error("failed to fill asks", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID), zap.Error(err))
-	} else {
-		o.logger.Info("passed orderbook asks", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
-	}
+	go func() {
+		defer fillWg.Done()
+		if _, err := o.computePerfectArbAmountIfExists(ctx, fillableAskAmountQuoteDenom, canonicalOrderbookResult.Quote, canonicalOrderbookResult.Base, canonicalOrderbookResult.PoolID); err != nil {
+			o.logger.Error("failed to fill asks", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID), zap.Error(err))
+		} else {
+			o.logger.Info("passed orderbook asks", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
+		}
+	}()
 
 	// Validate arb trying to fill bid liquidity
-	if _, err := o.computePerfectArbAmountIfExists(ctx, fillableBidAmountBaseDenom, canonicalOrderbookResult.Base, canonicalOrderbookResult.Quote, canonicalOrderbookResult.PoolID); err != nil {
-		o.logger.Error("failed to fill bids", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID), zap.Error(err))
-	} else {
-		o.logger.Info("passed orderbook bids", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
-	}
+	go func() {
+		defer fillWg.Done()
+		if _, err := o.computePerfectArbAmountIfExists(ctx, fillableBidAmountBaseDenom, canonicalOrderbookResult.Base, canonicalOrderbookResult.Quote, canonicalOrderbookResult.PoolID); err != nil {
+			o.logger.Error("failed to fill bids", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID), zap.Error(err))
+		} else {
+			o.logger.Info("passed orderbook bids", zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
+		}
+	}()
+
+	fillWg.Wait()
 
 	return nil
 }
