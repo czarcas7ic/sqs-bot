@@ -130,7 +130,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 	resultChan := make(chan orderBookProcessResult, len(canonicalOrderbooks))
 	defer close(resultChan)
 
-	skippedOrderbooks := 0
+	ineligibleOrderbooks := 0
 	for _, canonicalOrderbook := range canonicalOrderbooks {
 		// skip orderbooks that already do not meet this requirement
 		// TODO: only makes sense if the address used has small amount of operable tokens
@@ -138,7 +138,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 			o.logger.Info("Skipping orderbook due to insufficient balance",
 				zap.Error(err))
 
-			skippedOrderbooks++
+			ineligibleOrderbooks++
 			continue
 		}
 
@@ -157,7 +157,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 	}
 
 	// Collect all the results
-	for i := 0; i < len(canonicalOrderbooks)-skippedOrderbooks; i++ {
+	for i := 0; i < len(canonicalOrderbooks)-ineligibleOrderbooks; i++ {
 		select {
 		case result := <-resultChan:
 			if result.err != nil {
