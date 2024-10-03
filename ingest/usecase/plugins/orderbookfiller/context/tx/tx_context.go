@@ -88,7 +88,8 @@ func (t *txContext) AddMsg(msg msgctx.MsgContextI, forceAdd bool) {
 	t.msgsMx.Lock()
 	defer t.msgsMx.Unlock()
 
-	if !msg.IsLowValue() {
+	// high-value messages that are not forced are simply logged for used pools
+	if !msg.IsLowValue() && !forceAdd {
 		// Extract pool IDs from the message
 		if msg, ok := msg.AsSDKMsg().(*poolmanagertypes.MsgSwapExactAmountIn); ok {
 			for _, route := range msg.Routes {
@@ -96,10 +97,7 @@ func (t *txContext) AddMsg(msg msgctx.MsgContextI, forceAdd bool) {
 			}
 		}
 
-		// high-value messages should not always be included in tx context
-		if !forceAdd {
-			return
-		}
+		return
 	}
 
 	t.msgs = append(t.msgs, msg)

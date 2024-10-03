@@ -135,9 +135,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 		// skip orderbooks that already do not meet this requirement
 		// TODO: only makes sense if the address used has small amount of operable tokens
 		if err := o.validateUserBalances(blockCtx, canonicalOrderbook.Base, canonicalOrderbook.Quote); err != nil {
-			o.logger.Info("Skipping orderbook due to insufficient balance",
-				zap.Error(err))
-
+			o.logger.Info("Skipping orderbook due to insufficient balance", zap.Error(err))
 			ineligibleOrderbooks++
 			continue
 		}
@@ -270,12 +268,14 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 	// This is so that we can at least partially fill if the user balance is less than the fillable amount.
 	userBalanceQuoteDenom := ctx.GetUserBalances().AmountOf(quoteDenom)
 	if userBalanceQuoteDenom.LT(fillableAskAmountQuoteDenom) {
+		fmt.Println(fillableAskAmountQuoteDenom, userBalanceQuoteDenom)
 		fillableAskAmountQuoteDenom = userBalanceQuoteDenom
 		o.logger.Warn("user balance less than fillable ask amount", zap.String("quote_denom", quoteDenom), zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
 	}
 
 	userBalanceBaseDenom := ctx.GetUserBalances().AmountOf(baseDenom)
 	if userBalanceBaseDenom.LT(fillableBidAmountBaseDenom) {
+		fmt.Println(fillableBidAmountBaseDenom, userBalanceBaseDenom)
 		fillableBidAmountBaseDenom = userBalanceBaseDenom
 		o.logger.Warn("user balance less than fillable bid amount", zap.String("base_denom", baseDenom), zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
 	}
@@ -337,14 +337,14 @@ func (o *orderbookFillerIngestPlugin) computePerfectArbAmountIfExists(ctx blockc
 	}
 
 	// fill high value routes immediately
+	var ierr error
 	if !msgCtx.IsLowValue() {
-		o.fillImmediate(ctx, msgCtx)
-		panic("filled immediately, panicking to avoid possible issues")
+		ierr = o.fillImmediate(ctx, msgCtx)
 	}
 
 	// If profitable, execute add the message to the transaction context
 	txCtx := ctx.GetTxCtx()
-	txCtx.AddMsg(msgCtx, false)
+	txCtx.AddMsg(msgCtx, ierr != nil) // if error, the message is added to the bundled context, otherwise is logged for used pools
 
 	return result, nil
 }

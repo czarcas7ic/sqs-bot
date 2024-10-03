@@ -441,7 +441,7 @@ func transferDenomLiquidityMap(transferTo, transferFrom domain.DenomPoolLiquidit
 		}
 
 		// Update the global map with the updated data.
-		transferTo[denom] = transferToLiquidityDataForDenom
+		transferTo[denom] = transferToLiquidityDataForDenom // TODO: make concurrency-safe
 	}
 
 	return transferTo
