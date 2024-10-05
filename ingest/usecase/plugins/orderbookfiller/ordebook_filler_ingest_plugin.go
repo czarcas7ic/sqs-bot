@@ -339,7 +339,9 @@ func (o *orderbookFillerIngestPlugin) computePerfectArbAmountIfExists(ctx blockc
 	// fill high value routes immediately
 	var ierr error
 	if !msgCtx.IsLowValue() {
-		ierr = o.fillImmediate(ctx, msgCtx)
+		if ierr = o.fillImmediate(ctx, msgCtx); ierr != nil {
+			o.logger.Error("failed to fill high value route immediately", zap.Error(ierr))
+		}
 	}
 
 	// If profitable, execute add the message to the transaction context

@@ -247,4 +247,11 @@ orderbook-filler-start:
 orderbook-filler-stop:
 	cd ./ingest/usecase/plugins/orderbookfiller && docker compose down
 	cd ../../../../
-	echo "Order Book Filler Bot Stopped"	
+	echo "Order Book Filler Bot Stopped"
+
+orderbook-filler-cli-start:
+	OSMOSIS_KEYRING_PATH="/root/.osmosisd/keyring-test" \
+	OSMOSIS_KEYRING_PASSWORD="test" \
+	OSMOSIS_KEYRING_KEY_NAME="local.info" \
+	SQS_OTEL_ENVIRONMENT="sqs-local-debugger" \
+	go run ./app/main.go ./app/sidecar_query_server.go ./app/sqs_config.go --config config.json --host sqs-dev
