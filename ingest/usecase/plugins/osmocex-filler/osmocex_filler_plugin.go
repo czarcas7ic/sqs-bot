@@ -20,7 +20,8 @@ type osmocexFillerIngestPlugin struct {
 	poolsUseCase  mvc.PoolsUsecase
 	tokensUseCase mvc.TokensUsecase
 
-	orderMapByPoolID     sync.Map
+	orderMapByPoolID sync.Map
+
 	atomicBool           atomic.Bool
 	orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient
 

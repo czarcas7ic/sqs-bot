@@ -2,9 +2,9 @@ package bybit
 
 import (
 	"os"
-	"sync"
 
 	"github.com/osmosis-labs/sqs/domain"
+	"github.com/osmosis-labs/sqs/domain/mvc"
 	"github.com/osmosis-labs/sqs/log"
 
 	bybit "github.com/wuhewuhe/bybit.go.api"
@@ -23,7 +23,8 @@ type BybitExchange struct {
 	// map of pairs that this exchange is configured to arb against
 	registeredPairs map[cex.Pair]struct{}
 
-	osmoOrderbooks *sync.Map
+	// upstream pointers
+	osmoPoolsUseCase mvc.PoolsUsecase
 
 	logger log.Logger
 }
@@ -67,7 +68,7 @@ func (be *BybitExchange) matchOrderbooks(thisData cex.OrderbookData, osmoData do
 
 func (be *BybitExchange) RegisterPair(pair cex.Pair) error {
 	be.registeredPairs[pair] = struct{}{}
-	return be.subscribeOrderbook(wsbybit.SymbolV5(pair.String()), 1)
+	return be.subscribeOrderbook(pair, 1)
 }
 
 func (be *BybitExchange) SupportedPair(pair cex.Pair) bool {
