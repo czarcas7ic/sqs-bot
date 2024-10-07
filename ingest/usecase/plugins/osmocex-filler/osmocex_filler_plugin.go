@@ -17,8 +17,8 @@ import (
 )
 
 type osmocexFillerIngestPlugin struct {
-	poolsUseCase  mvc.PoolsUsecase
-	tokensUseCase mvc.TokensUsecase
+	poolsUseCase mvc.PoolsUsecase
+	// tokensUseCase mvc.TokensUsecase
 
 	orderMapByPoolID sync.Map
 
@@ -63,26 +63,20 @@ func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockH
 	}
 	defer oc.atomicBool.Store(false)
 
-	for _, canonicalOrderbook := range canonicalOrderbooks {
-		pair := cex.Pair{
-			Base:  canonicalOrderbook.Base,
-			Quote: canonicalOrderbook.Quote,
-		}
+	// for _, canonicalOrderbook := range canonicalOrderbooks {
+	// 	pair := cex.Pair{
+	// 		Base:  canonicalOrderbook.Base,
+	// 		Quote: canonicalOrderbook.Quote,
+	// 	}
 
-		for _, cExchange := range oc.CExchanges {
-			if cExchange.SupportedPair(pair) {
-				// Process orderbook data
-				if err := cExchange.ProcessOrderbook(canonicalOrderbook); err != nil {
-					oc.logger.Error("failed to process orderbook data", zap.Error(err))
-					return err
-				}
-			}
-		}
-	}
-	// for _, cExchange := range oc.CExchanges {
-	// 	if cExchange.SupportedPair
-
+	// 	for _, cExchange := range oc.CExchanges {
+	// 		if cExchange.SupportedPair(pair) {
+	// 		}
+	// 	}
 	// }
+	for _, cExchange := range oc.CExchanges {
+		cExchange.Signal()
+	}
 
 	return nil
 }

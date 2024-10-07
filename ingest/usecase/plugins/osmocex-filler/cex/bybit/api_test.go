@@ -1,22 +1,56 @@
 package bybit
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	wsbybit "github.com/hirokisan/bybit/v2"
 )
 
 func TestWs(t *testing.T) {
-	wsClient := wsbybit.NewTestWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"))
-	svc, err := wsClient.V5().Private()
+	wsClient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"))
+	svc, err := wsClient.V5().Public(wsbybit.CategoryV5Spot)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	svc.SubscribeOrder(func(resp wsbybit.V5WebsocketPrivateOrderResponse) error {
-		return nil
-	})
+	svc.SubscribeOrderBook(
+		wsbybit.V5WebsocketPublicOrderBookParamKey{
+			Depth:  1,
+			Symbol: wsbybit.SymbolV5("BTCUSDT"),
+		},
+		func(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				fmt.Println(1, resp)
+				time.Sleep(5 * time.Second)
+			}()
+
+			wg.Wait()
+			return nil
+		},
+	)
+
+	svc.SubscribeOrderBook(
+		wsbybit.V5WebsocketPublicOrderBookParamKey{
+			Depth:  1,
+			Symbol: wsbybit.SymbolV5("BTCUSDC"),
+		},
+		func(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
+			fmt.Println(2, resp)
+			return nil
+		},
+	)
+
+	go svc.Start(context.Background(), nil)
+
+	fmt.Println("test")
 
 	select {}
 }

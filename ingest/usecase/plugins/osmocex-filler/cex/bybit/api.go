@@ -14,18 +14,26 @@ func (be *BybitExchange) subscribeOrderbook(pair cex.Pair, depth int) error {
 			Depth:  depth,
 			Symbol: wsbybit.SymbolV5(pair.String()),
 		},
+		// These callbacks are ran sequentially. Introduced concurrency is needed for performance.
 		func(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
+			if !be.newBlockSignal.Load() {
+				return nil
+			}
+			defer be.newBlockWg.Done()
+
 			ec := make(chan error)
 			defer close(ec)
 
-			// get orderbooks from CEX and DEX
-			cexOrderbook := parseBybitOrderbook(resp.Data)
-			osmoOrderbook, err := be.getOrderbookForPair(pair)
-			if err != nil {
-				return err
-			}
+			go func() {
+				// get orderbooks from CEX and DEX
+				cexOrderbook := parseBybitOrderbook(resp.Data)
+				osmoOrderbook, err := be.getOrderbookForPair(pair)
+				if err != nil {
+					ec <- err
+				}
 
-			go be.matchOrderbooks(cexOrderbook, osmoOrderbook)
+				ec <- be.matchOrderbooks(cexOrderbook, osmoOrderbook)
+			}()
 
 			select {
 			case err := <-ec:

@@ -1,14 +1,17 @@
 package cex
 
-import "github.com/osmosis-labs/sqs/domain"
-
 type CExchangeI interface {
-	// ProcessOrderbook processes a specific orderbook from this centralized exchange against the osmosis's orderbook
-	ProcessOrderbook(osmoData domain.CanonicalOrderBooksResult) error
-	// RegisterPair adds a pair to the list of arb-able pairs
-	RegisterPair(pair Pair) error
+	// ProcessOrderbook acknowledges the osmosis orderbook
+	// Each exchange implements this acknowledgement differently
+	// ProcessOrderbook(osmoData domain.CanonicalOrderBooksResult) error
 
+	// RegisterPair adds a pair of tokens to the list of arb-able pairs
+	RegisterPair(pair Pair) error
+	// SupportedPair returns true if the pair is supported by the exchange
 	SupportedPair(pair Pair) bool
+	// Signal signals the websocket callback to start matching orderbooks
+	// Called at the beginning of each block
+	Signal()
 }
 
 type Pair struct {
