@@ -1,6 +1,9 @@
 # Redis
 redis-cache
 
+# Env
+**/.env
+
 # Tools
 bin
 

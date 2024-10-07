@@ -175,13 +175,17 @@ func (o *orderbookFillerIngestPlugin) executeTx(
 	// Every 40 blocks (roughly 1 minute), batch all off-market orders and execute them
 	// potentially at a loss. This is roughly 4 cents per minute assumming 3 swap messages at 0.1 uosmo per gas.
 	// Which is only $57 per day
-	if blockHeight%noTxFeeCheckHeightInterval != 0 {
-		maxTxFeeCap := txCtx.GetMaxTxFeeCap()
-		if txFeeCap.Dec().GT(maxTxFeeCap) {
-			return nil, "", fmt.Errorf("tx fee capitalization %s, is greater than max allowed %s", txFeeCap, maxTxFeeCap)
-		}
-	} else {
-		o.logger.Info("skipping tx fee check", zap.String("tx_fee_cap", txFeeCap.String()), zap.String("max_txf_fee_cap", txCtx.GetMaxTxFeeCap().String()), zap.Uint64("block_height", blockHeight))
+	// if blockHeight%noTxFeeCheckHeightInterval != 0 {
+	// 	maxTxFeeCap := txCtx.GetMaxTxFeeCap()
+	// 	if txFeeCap.Dec().GT(maxTxFeeCap) {
+	// 		return nil, "", fmt.Errorf("tx fee capitalization %s, is greater than max allowed %s", txFeeCap, maxTxFeeCap)
+	// 	}
+	// } else {
+	// 	o.logger.Info("skipping tx fee check", zap.String("tx_fee_cap", txFeeCap.String()), zap.String("max_txf_fee_cap", txCtx.GetMaxTxFeeCap().String()), zap.Uint64("block_height", blockHeight))
+	// }
+
+	if txFeeCap.Dec().GT(txCtx.GetMaxTxFeeCap()) {
+		return nil, "", fmt.Errorf("tx fee capitalization %s, is greater than max allowed %s", txFeeCap, txCtx.GetMaxTxFeeCap())
 	}
 
 	txFeeUosmo := blockGasPrice.GasPrice.Mul(osmomath.NewIntFromUint64(adjustedTxGasUsedTotal).ToLegacyDec()).Ceil().TruncateInt()

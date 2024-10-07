@@ -1,0 +1,8 @@
+{
+    "workbench.colorTheme": "Default Dark+",
+    "workbench.preferredDarkColorTheme": "Visual Studio 2017 Dark - C++",
+    "workbench.preferredHighContrastColorTheme": "Visual Studio 2017 Dark - C++",
+    "workbench.preferredHighContrastLightColorTheme": "Visual Studio 2017 Dark - C++",
+    "workbench.preferredLightColorTheme": "Visual Studio 2017 Dark - C++",
+    "makefile.configureOnOpen": false
+}
