@@ -1,11 +1,11 @@
 package bybit
 
 import (
-	"github.com/hirokisan/bybit/v2"
+	wsbybit "github.com/hirokisan/bybit/v2"
 	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
 )
 
-func parseBybitOrderbook(data bybit.V5WebsocketPublicOrderBookData) cex.OrderbookData {
+func parseBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) cex.OrderbookData {
 	bids := []cex.OrderbookEntry{}
 	asks := []cex.OrderbookEntry{}
 

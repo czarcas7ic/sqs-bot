@@ -151,7 +151,7 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 // It returns an error and avoids executing the transaction if the tx fee capitalization is greater than the max allowed.
 func (o *orderbookFillerIngestPlugin) executeTx(
 	goCtx context.Context,
-	blockHeight uint64,
+	blockHeight uint64, // nolint:unusedparams
 	blockGasPrice blockctx.BlockGasPrice,
 	txCtx txctx.TxContextI,
 ) (response *coretypes.ResultBroadcastTx, txbody string, err error) {
@@ -175,6 +175,7 @@ func (o *orderbookFillerIngestPlugin) executeTx(
 	// Every 40 blocks (roughly 1 minute), batch all off-market orders and execute them
 	// potentially at a loss. This is roughly 4 cents per minute assumming 3 swap messages at 0.1 uosmo per gas.
 	// Which is only $57 per day
+	_ = blockHeight
 	// if blockHeight%noTxFeeCheckHeightInterval != 0 {
 	// 	maxTxFeeCap := txCtx.GetMaxTxFeeCap()
 	// 	if txFeeCap.Dec().GT(maxTxFeeCap) {
