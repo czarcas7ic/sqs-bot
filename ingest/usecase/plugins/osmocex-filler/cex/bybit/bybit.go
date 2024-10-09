@@ -2,7 +2,6 @@ package bybit
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 
@@ -14,6 +13,7 @@ import (
 	bybit "github.com/wuhewuhe/bybit.go.api"
 
 	wsbybit "github.com/hirokisan/bybit/v2"
+	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
 	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
 )
 
@@ -84,8 +84,7 @@ func (be *BybitExchange) matchOrderbooks(thisData cex.OrderbookData, osmoData do
 		return errors.New("failed to load osmo orders")
 	}
 
-	osmoOrders := osmoOrdersAny.(domain.CanonicalOrderBooksResult)
-	fmt.Println("osmoOrders", osmoOrders)
+	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
 	return nil
 }
 
@@ -100,5 +99,5 @@ func (be *BybitExchange) SupportedPair(pair cex.Pair) bool {
 }
 
 func (be *BybitExchange) registeredPairsSize() int { return len(be.registeredPairs) }
-func (be *BybitExchange) startBlock() { be.newBlockSignal = true }
-func (be *BybitExchange) endBlock() { be.newBlockSignal = false }
+func (be *BybitExchange) startBlock()              { be.newBlockSignal = true }
+func (be *BybitExchange) endBlock()                { be.newBlockSignal = false }
