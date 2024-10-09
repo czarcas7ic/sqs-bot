@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/domain/mvc"
@@ -28,7 +27,7 @@ type BybitExchange struct {
 	registeredPairs map[cex.Pair]struct{}
 
 	// newBlockSignal is a signal to the websocket client to continue matching orderbooks
-	newBlockSignal atomic.Bool
+	newBlockSignal bool
 	newBlockWg     sync.WaitGroup
 
 	// upstream pointers
@@ -70,17 +69,12 @@ func New(
 // Signal signals the websocket callback to start matching orderbooks
 // Signal is called at the beginning of each block
 func (be *BybitExchange) Signal() {
-	be.newBlockSignal.Store(true)
-	defer be.newBlockSignal.Store(false)
+	be.startBlock()
+	defer be.endBlock()
 
 	be.newBlockWg.Add(be.registeredPairsSize())
-	be.newBlockWg.Wait()
+	be.newBlockWg.Wait() // blocks until all orderbooks are processed for this block
 }
-
-// Implements cex.CExchangeI
-// func (be *BybitExchange) ProcessOrderbook(osmoData domain.CanonicalOrderBooksResult) error {
-// 	return nil
-// }
 
 // matchOrderbooks is a callback used by the websocket client to try and find the fillable orderbooks
 func (be *BybitExchange) matchOrderbooks(thisData cex.OrderbookData, osmoData domain.CanonicalOrderBooksResult) error {
@@ -105,6 +99,6 @@ func (be *BybitExchange) SupportedPair(pair cex.Pair) bool {
 	return ok
 }
 
-func (be *BybitExchange) registeredPairsSize() int {
-	return len(be.registeredPairs)
-}
+func (be *BybitExchange) registeredPairsSize() int { return len(be.registeredPairs) }
+func (be *BybitExchange) startBlock() { be.newBlockSignal = true }
+func (be *BybitExchange) endBlock() { be.newBlockSignal = false }

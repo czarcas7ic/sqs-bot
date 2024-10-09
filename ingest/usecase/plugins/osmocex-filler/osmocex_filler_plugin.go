@@ -63,17 +63,6 @@ func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockH
 	}
 	defer oc.atomicBool.Store(false)
 
-	// for _, canonicalOrderbook := range canonicalOrderbooks {
-	// 	pair := cex.Pair{
-	// 		Base:  canonicalOrderbook.Base,
-	// 		Quote: canonicalOrderbook.Quote,
-	// 	}
-
-	// 	for _, cExchange := range oc.CExchanges {
-	// 		if cExchange.SupportedPair(pair) {
-	// 		}
-	// 	}
-	// }
 	for _, cExchange := range oc.CExchanges {
 		cExchange.Signal()
 	}
