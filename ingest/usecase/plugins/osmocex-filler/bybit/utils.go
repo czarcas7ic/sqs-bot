@@ -33,7 +33,10 @@ func parseBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) osmocexfil
 }
 
 func (be *BybitExchange) getOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
-	osmoPoolId, contractAddress, err := be.osmoPoolsUseCase.GetCanonicalOrderbookPool(pair.Base, pair.Quote)
+	base := SymbolToInterchain[pair.Base]
+	quote := SymbolToInterchain[pair.Quote]
+
+	osmoPoolId, contractAddress, err := be.osmoPoolsUseCase.GetCanonicalOrderbookPool(base, quote)
 	if err != nil {
 		be.logger.Error("failed to get canonical orderbook pool", zap.Error(err))
 		return domain.CanonicalOrderBooksResult{}, err

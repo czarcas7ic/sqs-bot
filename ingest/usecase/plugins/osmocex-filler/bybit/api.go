@@ -36,6 +36,7 @@ func (be *BybitExchange) callbackInternal(resp wsbybit.V5WebsocketPublicOrderBoo
 	osmoOrderbook, err := be.getOrderbookForPair(pair)
 	if err != nil {
 		be.logger.Error("failed to get orderbook for pair", zap.String("pair", pair.String()), zap.Error(err))
+		return
 	}
 
 	err = be.matchOrderbooks(cexOrderbook, osmoOrderbook)

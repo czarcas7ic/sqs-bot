@@ -1,7 +1,9 @@
 package bybit
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 
@@ -40,7 +42,7 @@ type BybitExchange struct {
 var _ osmocexfillertypes.ExchangeI = (*BybitExchange)(nil)
 
 const (
-	HTTP_URL = bybit.TESTNET // dev
+	HTTP_URL = bybit.MAINNET // dev
 )
 
 func New(
@@ -74,6 +76,7 @@ func (be *BybitExchange) Signal() {
 
 	be.newBlockWg.Add(be.registeredPairsSize())
 	be.newBlockWg.Wait() // blocks until all orderbooks are processed for this block
+	fmt.Println("done")
 }
 
 // matchOrderbooks is a callback used by the websocket client to try and find the fillable orderbooks
@@ -101,9 +104,17 @@ func (be *BybitExchange) matchOrderbooks(thisData osmocexfillertypes.OrderbookDa
 	return nil
 }
 
-func (be *BybitExchange) RegisterPair(pair osmocexfillertypes.Pair) error {
-	be.registeredPairs[pair] = struct{}{}
-	return be.subscribeOrderbook(pair, 1)
+func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
+	for _, pair := range ArbPairs {
+		be.registeredPairs[pair] = struct{}{}
+		if err := be.subscribeOrderbook(pair, 1); err != nil {
+			return err
+		}
+	}
+
+	go be.wsclient.Start(ctx, nil)
+
+	return nil
 }
 
 func (be *BybitExchange) SupportedPair(pair osmocexfillertypes.Pair) bool {

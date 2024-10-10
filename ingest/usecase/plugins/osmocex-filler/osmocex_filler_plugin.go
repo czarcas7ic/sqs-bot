@@ -18,6 +18,7 @@ import (
 )
 
 type osmocexFillerIngestPlugin struct {
+	ctx          context.Context
 	poolsUseCase mvc.PoolsUsecase
 	// tokensUseCase mvc.TokensUsecase
 
@@ -49,6 +50,7 @@ func New(poolsUseCase mvc.PoolsUsecase, orderbookCWAPIClient orderbookplugindoma
 	}
 
 	plugin := &osmocexFillerIngestPlugin{
+		ctx:                  context.Background(),
 		poolsUseCase:         poolsUseCase,
 		orderbookCWAPIClient: orderbookCWAPIClient,
 		orderMapByPoolID:     orderMapByPoolID,
@@ -77,7 +79,7 @@ func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockH
 	// For simplicity, we allow only one block to be processed at a time.
 	// This may be relaxed in the future.
 	if !oc.atomicBool.CompareAndSwap(false, true) {
-		oc.logger.Info("orderbook filler is already in progress", zap.Uint64("block_height", blockHeight))
+		oc.logger.Info("osmocex filler is already in progress", zap.Uint64("block_height", blockHeight))
 		return nil
 	}
 	defer oc.atomicBool.Store(false)
@@ -116,8 +118,12 @@ func (oc *osmocexFillerIngestPlugin) fetchTicksForModifiedOrderbooks(ctx context
 
 func (oc *osmocexFillerIngestPlugin) registerExchanges(exchanges []osmocexfillertypes.ExchangeI) {
 	oc.Exchanges = append(oc.Exchanges, exchanges...)
-}
 
-// func (oc *osmocexFillerIngestPlugin) GetOrderMapPointer() *sync.Map {
-// 	return oc.orderMapByPoolID
-// }
+	for _, exchange := range exchanges {
+		err := exchange.RegisterPairs(oc.ctx)
+		if err != nil {
+			oc.logger.Error("failed to register pairs", zap.Error(err))
+			panic(err)
+		}
+	}
+}
