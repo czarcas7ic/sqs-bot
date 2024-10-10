@@ -7,8 +7,8 @@ type OrderbookData struct {
 }
 
 type OrderbookEntry struct {
-	Price  string
-	Amount string
+	Price string
+	Size  string
 }
 
 type Pair struct {

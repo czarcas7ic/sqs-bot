@@ -46,7 +46,7 @@ func New(poolsUseCase mvc.PoolsUsecase, orderbookCWAPIClient orderbookplugindoma
 	orderMapByPoolID := &sync.Map{}
 
 	exchanges := []osmocexfillertypes.ExchangeI{
-		bybit.New(logger, orderMapByPoolID, poolsUseCase),
+		bybit.New(logger, orderMapByPoolID, &poolsUseCase),
 	}
 
 	plugin := &osmocexFillerIngestPlugin{
