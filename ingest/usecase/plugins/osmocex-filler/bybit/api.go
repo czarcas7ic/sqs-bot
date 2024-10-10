@@ -2,12 +2,12 @@ package bybit
 
 import (
 	wsbybit "github.com/hirokisan/bybit/v2"
-	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
+	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 	"go.uber.org/zap"
 )
 
 // subscribeOrderbook: https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook
-func (be *BybitExchange) subscribeOrderbook(pair cex.Pair, depth int) error {
+func (be *BybitExchange) subscribeOrderbook(pair osmocexfillertypes.Pair, depth int) error {
 	_, err := be.wsclient.SubscribeOrderBook(
 		wsbybit.V5WebsocketPublicOrderBookParamKey{
 			Depth:  depth,
@@ -24,7 +24,7 @@ func (be *BybitExchange) subscribeOrderbook(pair cex.Pair, depth int) error {
 	return err
 }
 
-func (be *BybitExchange) callbackInternal(resp wsbybit.V5WebsocketPublicOrderBookResponse, pair cex.Pair) {
+func (be *BybitExchange) callbackInternal(resp wsbybit.V5WebsocketPublicOrderBookResponse, pair osmocexfillertypes.Pair) {
 	if !be.newBlockSignal {
 		return
 	}

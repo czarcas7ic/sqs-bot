@@ -3,36 +3,36 @@ package bybit
 import (
 	wsbybit "github.com/hirokisan/bybit/v2"
 	"github.com/osmosis-labs/sqs/domain"
-	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
+	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 	"go.uber.org/zap"
 )
 
-func parseBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) cex.OrderbookData {
-	bids := []cex.OrderbookEntry{}
-	asks := []cex.OrderbookEntry{}
+func parseBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) osmocexfillertypes.OrderbookData {
+	bids := []osmocexfillertypes.OrderbookEntry{}
+	asks := []osmocexfillertypes.OrderbookEntry{}
 
 	for _, bid := range data.Bids {
-		bids = append(bids, cex.OrderbookEntry{
+		bids = append(bids, osmocexfillertypes.OrderbookEntry{
 			Price:  bid.Price,
 			Amount: bid.Size,
 		})
 	}
 
 	for _, ask := range data.Asks {
-		asks = append(asks, cex.OrderbookEntry{
+		asks = append(asks, osmocexfillertypes.OrderbookEntry{
 			Price:  ask.Price,
 			Amount: ask.Size,
 		})
 	}
 
-	return cex.OrderbookData{
+	return osmocexfillertypes.OrderbookData{
 		Symbol: string(data.Symbol),
 		Bids:   bids,
 		Asks:   asks,
 	}
 }
 
-func (be *BybitExchange) getOrderbookForPair(pair cex.Pair) (domain.CanonicalOrderBooksResult, error) {
+func (be *BybitExchange) getOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
 	osmoPoolId, contractAddress, err := be.osmoPoolsUseCase.GetCanonicalOrderbookPool(pair.Base, pair.Quote)
 	if err != nil {
 		be.logger.Error("failed to get canonical orderbook pool", zap.Error(err))

@@ -1,6 +1,6 @@
-package cex
+package osmocexfillertypes
 
-type CExchangeI interface {
+type ExchangeI interface {
 	// ProcessOrderbook acknowledges the osmosis orderbook
 	// Each exchange implements this acknowledgement differently
 	// ProcessOrderbook(osmoData domain.CanonicalOrderBooksResult) error
@@ -14,13 +14,4 @@ type CExchangeI interface {
 	// Signal signals the websocket callback to start matching orderbooks
 	// Called at the beginning of each block
 	Signal()
-}
-
-type Pair struct {
-	Base  string
-	Quote string
-}
-
-func (p Pair) String() string {
-	return p.Base + p.Quote
 }

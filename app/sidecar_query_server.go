@@ -23,6 +23,7 @@ import (
 	ingestrpcdelivry "github.com/osmosis-labs/sqs/ingest/delivery/grpc"
 	ingestusecase "github.com/osmosis-labs/sqs/ingest/usecase"
 	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/orderbookfiller"
+	osmocexfiller "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler"
 	orderbookrepository "github.com/osmosis-labs/sqs/orderbook/repository"
 	orderbookusecase "github.com/osmosis-labs/sqs/orderbook/usecase"
 	"github.com/osmosis-labs/sqs/sqsutil/datafetchers"
@@ -46,6 +47,7 @@ import (
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	orderbookgrpcclientdomain "github.com/osmosis-labs/sqs/domain/orderbook/grpcclient"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
+	osmocexplugindomain "github.com/osmosis-labs/sqs/domain/osmocex/plugin"
 	passthroughdomain "github.com/osmosis-labs/sqs/domain/passthrough"
 	"github.com/osmosis-labs/sqs/log"
 	"github.com/osmosis-labs/sqs/middleware"
@@ -279,6 +281,11 @@ func NewSideCarQueryServer(appCodec codec.Codec, config domain.Config, logger lo
 
 					logger.Info("Using keyring with address", zap.Stringer("address", keyring.GetAddress()))
 					currentPlugin = orderbookfiller.New(poolsUseCase, routerUsecase, tokensUseCase, passthroughGRPCClient, orderBookAPIClient, keyring, defaultQuoteDenom, logger)
+				}
+
+				if plugin.GetName() == osmocexplugindomain.OsmoCexPluginName {
+					logger.Info("Using osmocex filler plugin")
+					currentPlugin = osmocexfiller.New(poolsUseCase, orderBookAPIClient, logger)
 				}
 
 				// Register the plugin with the ingest use case

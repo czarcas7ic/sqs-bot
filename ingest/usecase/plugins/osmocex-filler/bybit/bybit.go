@@ -14,7 +14,7 @@ import (
 
 	wsbybit "github.com/hirokisan/bybit/v2"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
-	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
+	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 )
 
 type BybitExchange struct {
@@ -24,7 +24,7 @@ type BybitExchange struct {
 	httpclient *bybit.Client
 
 	// map of pairs that this exchange is configured to arb against
-	registeredPairs map[cex.Pair]struct{}
+	registeredPairs map[osmocexfillertypes.Pair]struct{}
 
 	// newBlockSignal is a signal to the websocket client to continue matching orderbooks
 	newBlockSignal bool
@@ -37,7 +37,7 @@ type BybitExchange struct {
 	logger log.Logger
 }
 
-var _ cex.CExchangeI = (*BybitExchange)(nil)
+var _ osmocexfillertypes.ExchangeI = (*BybitExchange)(nil)
 
 const (
 	HTTP_URL = bybit.TESTNET // dev
@@ -59,7 +59,7 @@ func New(
 	return &BybitExchange{
 		wsclient:           svc,
 		httpclient:         httpclient,
-		registeredPairs:    make(map[cex.Pair]struct{}),
+		registeredPairs:    make(map[osmocexfillertypes.Pair]struct{}),
 		osmoPoolIdToOrders: osmoPoolIdToOrders,
 		osmoPoolsUseCase:   osmoPoolsUseCase,
 		logger:             logger,
@@ -77,7 +77,7 @@ func (be *BybitExchange) Signal() {
 }
 
 // matchOrderbooks is a callback used by the websocket client to try and find the fillable orderbooks
-func (be *BybitExchange) matchOrderbooks(thisData cex.OrderbookData, osmoData domain.CanonicalOrderBooksResult) error {
+func (be *BybitExchange) matchOrderbooks(thisData osmocexfillertypes.OrderbookData, osmoData domain.CanonicalOrderBooksResult) error {
 	osmoOrdersAny, ok := be.osmoPoolIdToOrders.Load(osmoData.PoolID)
 	if !ok {
 		be.logger.Error("failed to load osmo orders", zap.Uint64("poolID", osmoData.PoolID))
@@ -85,15 +85,28 @@ func (be *BybitExchange) matchOrderbooks(thisData cex.OrderbookData, osmoData do
 	}
 
 	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
+
+	// check arb from this exchange to osmo
+	err := be.checkArbFromThis(thisData.Asks, osmoOrders.BidOrders)
+	if err != nil {
+		return err
+	}
+
+	// check arb from osmo to this exchange
+	err = be.checkArbFromOsmo(thisData.Bids, osmoOrders.AskOrders)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (be *BybitExchange) RegisterPair(pair cex.Pair) error {
+func (be *BybitExchange) RegisterPair(pair osmocexfillertypes.Pair) error {
 	be.registeredPairs[pair] = struct{}{}
 	return be.subscribeOrderbook(pair, 1)
 }
 
-func (be *BybitExchange) SupportedPair(pair cex.Pair) bool {
+func (be *BybitExchange) SupportedPair(pair osmocexfillertypes.Pair) bool {
 	_, ok := be.registeredPairs[pair]
 	return ok
 }

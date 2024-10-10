@@ -8,6 +8,7 @@ import (
 
 	"github.com/mitchellh/mapstructure"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
+	osmocexplugindomain "github.com/osmosis-labs/sqs/domain/osmocex/plugin"
 	passthroughdomain "github.com/osmosis-labs/sqs/domain/passthrough"
 	"github.com/spf13/viper"
 )
@@ -156,8 +157,12 @@ var (
 			ServerConnectionTimeoutSeconds: 10,
 			Plugins: []Plugin{
 				&OrderBookPluginConfig{
-					Enabled: true,
+					Enabled: false,
 					Name:    orderbookplugindomain.OrderBookPluginName,
+				},
+				&OsmoCexPluginConfig{
+					Enabled: true,
+					Name:    osmocexplugindomain.OsmoCexPluginName,
 				},
 			},
 		},
@@ -304,7 +309,24 @@ func (o *OrderBookPluginConfig) IsEnabled() bool {
 	return o.Enabled
 }
 
+// OsmoCexPluginConfig encapsulates the Osmo CEX plugin configuration.
+type OsmoCexPluginConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Name    string `mapstructure:"name"`
+}
+
+// GetName implements Plugin.
+func (o *OsmoCexPluginConfig) GetName() string {
+	return o.Name
+}
+
+// IsEnabled implements Plugins.
+func (o *OsmoCexPluginConfig) IsEnabled() bool {
+	return o.Enabled
+}
+
 var _ Plugin = &OrderBookPluginConfig{}
+var _ Plugin = &OsmoCexPluginConfig{}
 
 type EndpointOTELConfig struct {
 	Quote float64 `mapstructure:"/router/quote"`

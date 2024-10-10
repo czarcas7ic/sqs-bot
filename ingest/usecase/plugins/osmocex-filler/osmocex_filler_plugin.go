@@ -5,13 +5,14 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/log"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
-	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
+	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/bybit"
+	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -20,12 +21,12 @@ type osmocexFillerIngestPlugin struct {
 	poolsUseCase mvc.PoolsUsecase
 	// tokensUseCase mvc.TokensUsecase
 
-	orderMapByPoolID sync.Map
+	orderMapByPoolID *sync.Map
 
 	atomicBool           atomic.Bool
 	orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient
 
-	CExchanges []cex.CExchangeI
+	Exchanges []osmocexfillertypes.ExchangeI
 
 	logger log.Logger
 }
@@ -40,7 +41,25 @@ var (
 
 var _ domain.EndBlockProcessPlugin = &osmocexFillerIngestPlugin{}
 
-// func NewOsmoCexFillerIngestPlugin(poolsUseCase mvc.PoolsUsecase, tokensUseCase mvc.TokensUsecase) *osmocexFillerIngestPlugin {}
+func New(poolsUseCase mvc.PoolsUsecase, orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient, logger log.Logger) *osmocexFillerIngestPlugin {
+	orderMapByPoolID := &sync.Map{}
+
+	exchanges := []osmocexfillertypes.ExchangeI{
+		bybit.New(logger, orderMapByPoolID, poolsUseCase),
+	}
+
+	plugin := &osmocexFillerIngestPlugin{
+		poolsUseCase:         poolsUseCase,
+		orderbookCWAPIClient: orderbookCWAPIClient,
+		orderMapByPoolID:     orderMapByPoolID,
+		Exchanges:            make([]osmocexfillertypes.ExchangeI, 0),
+		logger:               logger,
+	}
+
+	plugin.registerExchanges(exchanges)
+
+	return plugin
+}
 
 func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockHeight uint64, metadata domain.BlockPoolMetadata) error {
 	ctx, span := tracer.Start(ctx, "osmocexfiller.ProcessEndBlock")
@@ -63,7 +82,7 @@ func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockH
 	}
 	defer oc.atomicBool.Store(false)
 
-	for _, cExchange := range oc.CExchanges {
+	for _, cExchange := range oc.Exchanges {
 		cExchange.Signal()
 	}
 
@@ -94,3 +113,11 @@ func (oc *osmocexFillerIngestPlugin) fetchTicksForModifiedOrderbooks(ctx context
 
 	return nil
 }
+
+func (oc *osmocexFillerIngestPlugin) registerExchanges(exchanges []osmocexfillertypes.ExchangeI) {
+	oc.Exchanges = append(oc.Exchanges, exchanges...)
+}
+
+// func (oc *osmocexFillerIngestPlugin) GetOrderMapPointer() *sync.Map {
+// 	return oc.orderMapByPoolID
+// }

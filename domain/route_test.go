@@ -44,9 +44,9 @@ var (
 	DefaultLiquidityAmt = routertesting.DefaultLiquidityAmt
 
 	// router specific variables
-	defaultTickModel = routertesting.DefaultTickModel
+	// defaultTickModel = routertesting.DefaultTickModel
 
-	noTakerFee = routertesting.NoTakerFee
+	// noTakerFee = routertesting.NoTakerFee
 
 	emptyRoute = routertesting.EmptyRoute
 )

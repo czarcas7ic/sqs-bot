@@ -6,10 +6,10 @@ import (
 	"github.com/osmosis-labs/osmosis/osmomath"
 	clmath "github.com/osmosis-labs/osmosis/v25/x/concentrated-liquidity/math"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
-	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/cex"
+	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 )
 
-func (be *BybitExchange) searchArbFromOsmo(thisAsks []cex.OrderbookEntry, osmoBids []orderbookplugindomain.Order) error {
+func (be *BybitExchange) checkArbFromOsmo(thisAsks []osmocexfillertypes.OrderbookEntry, osmoBids []orderbookplugindomain.Order) error {
 	osmoHighestBid := osmoBids[0]
 	thisLowestAsk := thisAsks[0]
 
@@ -33,7 +33,7 @@ func (be *BybitExchange) searchArbFromOsmo(thisAsks []cex.OrderbookEntry, osmoBi
 	return nil
 }
 
-func (be *BybitExchange) searchArbFromThis(thisBids []cex.OrderbookEntry, osmoAsks []orderbookplugindomain.Order) error {
+func (be *BybitExchange) checkArbFromThis(thisBids []osmocexfillertypes.OrderbookEntry, osmoAsks []orderbookplugindomain.Order) error {
 	thisHighestBid := thisBids[0]
 	osmoLowestAsk := osmoAsks[0]
 
