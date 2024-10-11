@@ -9,29 +9,19 @@ import (
 	"go.uber.org/zap"
 )
 
-func parseBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) osmocexfillertypes.OrderbookData {
-	bids := []osmocexfillertypes.OrderbookEntry{}
-	asks := []osmocexfillertypes.OrderbookEntry{}
+func parseBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) *osmocexfillertypes.OrderbookData {
+	bids := make(map[string]string)
+	asks := make(map[string]string)
 
 	for _, bid := range data.Bids {
-		bids = append(bids, osmocexfillertypes.OrderbookEntry{
-			Price: bid.Price,
-			Size:  bid.Size,
-		})
+		bids[bid.Price] = bid.Size
 	}
 
 	for _, ask := range data.Asks {
-		asks = append(asks, osmocexfillertypes.OrderbookEntry{
-			Price: ask.Price,
-			Size:  ask.Size,
-		})
+		asks[ask.Price] = ask.Size
 	}
 
-	return osmocexfillertypes.OrderbookData{
-		Symbol: string(data.Symbol),
-		Bids:   bids,
-		Asks:   asks,
-	}
+	return osmocexfillertypes.NewOrderbookData(string(data.Symbol), bids, asks)
 }
 
 func (be *BybitExchange) updateBybitOrderbook(data wsbybit.V5WebsocketPublicOrderBookData) {
@@ -41,30 +31,30 @@ func (be *BybitExchange) updateBybitOrderbook(data wsbybit.V5WebsocketPublicOrde
 		return
 	}
 
-	orderbook := orderbookAny.(osmocexfillertypes.OrderbookData)
+	orderbook := orderbookAny.(*osmocexfillertypes.OrderbookData)
 
-	for i, bid := range data.Bids {
+	for _, bid := range data.Bids {
 		if bid.Size == "0" {
-			orderbook.Bids = append(orderbook.Bids[:i], orderbook.Bids[i+1:]...)
+			orderbook.RemoveBid(bid.Price)
 		} else {
-			orderbook.Bids[i].Size = bid.Size
+			orderbook.SetBid(bid.Price, bid.Size)
 		}
 	}
 
-	for i, ask := range data.Asks {
+	for _, ask := range data.Asks {
 		if ask.Size == "0" {
-			orderbook.Asks = append(orderbook.Asks[:i], orderbook.Asks[i+1:]...)
+			orderbook.RemoveAsk(ask.Price)
 		} else {
-			orderbook.Asks[i].Size = ask.Size
+			orderbook.SetAsk(ask.Price, ask.Size)
 		}
 	}
 
-	be.orderbooks.Store(data.Symbol, orderbook)
+	be.orderbooks.Store(string(data.Symbol), orderbook)
 }
 
 func (be *BybitExchange) getOsmoOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
-	base := SymbolToInterchain[pair.Base]
-	quote := SymbolToInterchain[pair.Quote]
+	base := SymbolToChainDenom[pair.Base]
+	quote := SymbolToChainDenom[pair.Quote]
 
 	osmoPoolId, contractAddress, err := (*be.osmoPoolsUseCase).GetCanonicalOrderbookPool(base, quote)
 	if err != nil {
@@ -80,14 +70,14 @@ func (be *BybitExchange) getOsmoOrderbookForPair(pair osmocexfillertypes.Pair) (
 	}, nil
 }
 
-func (be *BybitExchange) getBybitOrderbookForPair(pair osmocexfillertypes.Pair) (osmocexfillertypes.OrderbookData, error) {
+func (be *BybitExchange) getBybitOrderbookForPair(pair osmocexfillertypes.Pair) (*osmocexfillertypes.OrderbookData, error) {
 	orderbookAny, ok := be.orderbooks.Load(pair.String())
 	if !ok {
 		be.logger.Error("orderbook not found", zap.String("pair", pair.String()))
-		return osmocexfillertypes.OrderbookData{}, errors.New("orderbook not found")
+		return nil, errors.New("orderbook not found")
 	}
 
-	orderbook := orderbookAny.(osmocexfillertypes.OrderbookData)
+	orderbook := orderbookAny.(*osmocexfillertypes.OrderbookData)
 
 	return orderbook, nil
 }

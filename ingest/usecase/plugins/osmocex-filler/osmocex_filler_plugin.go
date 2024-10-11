@@ -18,9 +18,9 @@ import (
 )
 
 type osmocexFillerIngestPlugin struct {
-	ctx          context.Context
-	poolsUseCase mvc.PoolsUsecase
-	// tokensUseCase mvc.TokensUsecase
+	ctx           context.Context
+	poolsUseCase  mvc.PoolsUsecase
+	tokensUseCase mvc.TokensUsecase
 
 	orderMapByPoolID *sync.Map
 
@@ -42,11 +42,11 @@ var (
 
 var _ domain.EndBlockProcessPlugin = &osmocexFillerIngestPlugin{}
 
-func New(poolsUseCase mvc.PoolsUsecase, orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient, logger log.Logger) *osmocexFillerIngestPlugin {
+func New(poolsUseCase mvc.PoolsUsecase, tokensUseCase mvc.TokensUsecase, orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient, logger log.Logger) *osmocexFillerIngestPlugin {
 	orderMapByPoolID := &sync.Map{}
 
 	exchanges := []osmocexfillertypes.ExchangeI{
-		bybit.New(logger, orderMapByPoolID, &poolsUseCase),
+		bybit.New(logger, orderMapByPoolID, &poolsUseCase, &tokensUseCase),
 	}
 
 	plugin := &osmocexFillerIngestPlugin{

@@ -285,7 +285,7 @@ func NewSideCarQueryServer(appCodec codec.Codec, config domain.Config, logger lo
 
 				if plugin.GetName() == osmocexplugindomain.OsmoCexPluginName {
 					logger.Info("Using osmocex filler plugin")
-					currentPlugin = osmocexfiller.New(poolsUseCase, orderBookAPIClient, logger)
+					currentPlugin = osmocexfiller.New(poolsUseCase, tokensUseCase, orderBookAPIClient, logger)
 				}
 
 				// Register the plugin with the ingest use case

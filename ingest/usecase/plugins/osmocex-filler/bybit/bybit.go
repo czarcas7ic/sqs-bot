@@ -2,11 +2,9 @@ package bybit
 
 import (
 	"context"
-	"errors"
 	"os"
 	"sync"
 
-	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	"github.com/osmosis-labs/sqs/log"
 	"go.uber.org/zap"
@@ -30,6 +28,7 @@ type BybitExchange struct {
 	// upstream pointers
 	osmoPoolIdToOrders *sync.Map
 	osmoPoolsUseCase   *mvc.PoolsUsecase
+	osmoTokensUseCase  *mvc.TokensUsecase
 
 	orderbooks sync.Map
 
@@ -39,13 +38,15 @@ type BybitExchange struct {
 var _ osmocexfillertypes.ExchangeI = (*BybitExchange)(nil)
 
 const (
-	HTTP_URL = bybit.TESTNET // dev
+	HTTP_URL = bybit.MAINNET // dev
+	DDEPTH   = 50            // default depth for an orderbook
 )
 
 func New(
 	logger log.Logger,
 	osmoPoolIdToOrders *sync.Map,
 	osmoPoolsUseCase *mvc.PoolsUsecase,
+	osmoTokensUseCase *mvc.TokensUsecase,
 ) *BybitExchange {
 	wsclient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"))
 	svc, err := wsclient.V5().Public(wsbybit.CategoryV5Spot)
@@ -61,6 +62,7 @@ func New(
 		registeredPairs:    make(map[osmocexfillertypes.Pair]struct{}),
 		osmoPoolIdToOrders: osmoPoolIdToOrders,
 		osmoPoolsUseCase:   osmoPoolsUseCase,
+		osmoTokensUseCase:  osmoTokensUseCase,
 		logger:             logger,
 	}
 }
@@ -78,6 +80,7 @@ func (be *BybitExchange) Signal() {
 	newBlockWg.Wait() // blocks until all orderbooks are processed for this block
 }
 
+// processPair tries to find an orderbook profitable route between the two exchanges for a given pair
 func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.WaitGroup) {
 	defer wg.Done()
 	// get orderbooks from CEX and DEX
@@ -93,41 +96,33 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 		return
 	}
 
-	err = be.matchOrderbooks(cexOrderbook, osmoOrderbook)
-	if err != nil {
-		be.logger.Error("failed to match orderbooks", zap.String("pair", pair.String()), zap.Error(err))
-	}
-}
-
-// matchOrderbooks is a callback used by the websocket client to try and find the fillable orderbooks
-func (be *BybitExchange) matchOrderbooks(thisData osmocexfillertypes.OrderbookData, osmoData domain.CanonicalOrderBooksResult) error {
-	osmoOrdersAny, ok := be.osmoPoolIdToOrders.Load(osmoData.PoolID)
+	osmoOrdersAny, ok := be.osmoPoolIdToOrders.Load(osmoOrderbook.PoolID)
 	if !ok {
-		be.logger.Error("failed to load osmo orders", zap.Uint64("poolID", osmoData.PoolID))
-		return errors.New("failed to load osmo orders")
+		be.logger.Error("failed to load osmo orders", zap.Uint64("poolID", osmoOrderbook.PoolID))
+		return
 	}
 
 	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
 
+	be.matchOrderbooks(pair, cexOrderbook, &osmoOrders)
+	// if err != nil {
+	// 	be.logger.Error("failed to match orderbooks", zap.String("pair", pair.String()), zap.Error(err))
+	// }
+}
+
+// matchOrderbooks is used to find profitable arb opportunities between two orderbooks
+func (be *BybitExchange) matchOrderbooks(pair osmocexfillertypes.Pair, thisData *osmocexfillertypes.OrderbookData, osmoOrders *orderbookplugindomain.OrdersResponse) {
 	// check arb from this exchange to osmo
-	err := be.checkArbFromThis(thisData.Asks, osmoOrders.BidOrders)
-	if err != nil {
-		return err
-	}
+	be.checkArbFromThis(pair, thisData.BidsDescending(), osmoOrders.AsksAscending())
 
 	// check arb from osmo to this exchange
-	err = be.checkArbFromOsmo(thisData.Bids, osmoOrders.AskOrders)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	be.checkArbFromOsmo(pair, thisData.AsksAscending(), osmoOrders.BidsDescending())
 }
 
 func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
 	for _, pair := range ArbPairs {
 		be.registeredPairs[pair] = struct{}{}
-		if err := be.subscribeOrderbook(pair, 1); err != nil {
+		if err := be.subscribeOrderbook(pair, DDEPTH); err != nil {
 			return err
 		}
 	}
