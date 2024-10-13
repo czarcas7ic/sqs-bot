@@ -2,6 +2,7 @@ package bybit
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 
@@ -22,7 +23,7 @@ type BybitExchange struct {
 	// http client for trade calls
 	httpclient *bybit.Client
 
-	// map of pairs that this exchange is configured to arb against
+	// map of pairs that bybit exchange is configured to arb against
 	registeredPairs map[osmocexfillertypes.Pair]struct{}
 
 	// upstream pointers
@@ -30,6 +31,7 @@ type BybitExchange struct {
 	osmoPoolsUseCase   *mvc.PoolsUsecase
 	osmoTokensUseCase  *mvc.TokensUsecase
 
+	// bybit orderbooks: Symbol -> OrderbookData
 	orderbooks sync.Map
 
 	logger log.Logger
@@ -77,14 +79,14 @@ func (be *BybitExchange) Signal() {
 		go be.processPair(pair, &newBlockWg)
 	}
 
-	newBlockWg.Wait() // blocks until all orderbooks are processed for this block
+	newBlockWg.Wait() // blocks until all orderbooks are processed for bybit block
 }
 
 // processPair tries to find an orderbook profitable route between the two exchanges for a given pair
 func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.WaitGroup) {
 	defer wg.Done()
 	// get orderbooks from CEX and DEX
-	cexOrderbook, err := be.getBybitOrderbookForPair(pair)
+	bybitOrderbook, err := be.getBybitOrderbookForPair(pair)
 	if err != nil {
 		be.logger.Error("failed to get BYBIT orderbook for pair", zap.String("pair", pair.String()), zap.Error(err))
 		return
@@ -103,20 +105,17 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 	}
 
 	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
+	fmt.Println("OSMO ORDERS: ", osmoOrders, bybitOrderbook)
 
-	be.matchOrderbooks(pair, cexOrderbook, &osmoOrders)
-	// if err != nil {
-	// 	be.logger.Error("failed to match orderbooks", zap.String("pair", pair.String()), zap.Error(err))
-	// }
-}
+	// check arb from bybit exchange to osmo
+	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
 
-// matchOrderbooks is used to find profitable arb opportunities between two orderbooks
-func (be *BybitExchange) matchOrderbooks(pair osmocexfillertypes.Pair, thisData *osmocexfillertypes.OrderbookData, osmoOrders *orderbookplugindomain.OrdersResponse) {
-	// check arb from this exchange to osmo
-	be.checkArbFromThis(pair, thisData.BidsDescending(), osmoOrders.AsksAscending())
+	}
 
-	// check arb from osmo to this exchange
-	be.checkArbFromOsmo(pair, thisData.AsksAscending(), osmoOrders.BidsDescending())
+	// check arb from osmo to bybit exchange
+	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
+
+	}
 }
 
 func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
@@ -139,5 +138,4 @@ func (be *BybitExchange) SupportedPair(pair osmocexfillertypes.Pair) bool {
 
 func (be *BybitExchange) registeredPairsSize() int { return len(be.registeredPairs) }
 
-// func (be *BybitExchange) startBlock()              { be.newBlockSignal = true }
-// func (be *BybitExchange) endBlock()                { be.newBlockSignal = false }
+// func (be *BybitExchange)

@@ -1,18 +1,20 @@
 package bybit
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
 	clmath "github.com/osmosis-labs/osmosis/v25/x/concentrated-liquidity/math"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
 	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
+
+	"go.uber.org/zap"
 )
 
-func (be *BybitExchange) checkArbFromOsmo(pair osmocexfillertypes.Pair, thisAsks []osmocexfillertypes.OrderbookEntry, osmoBids []orderbookplugindomain.Order) error {
+// checks if the highest bid on osmo is higher than the lowest ask on bybit
+func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAsks []osmocexfillertypes.OrderBasicI, osmoBids []orderbookplugindomain.Order) bool {
 	osmoHighestBid := osmoBids[0]
-	thisLowestAsk := thisAsks[0]
+	bybitLowestAsk := bybitAsks[0]
 
 	// get osmo highest bid price from tick
 	osmoHighestBidPrice, _ := clmath.TickToPrice(osmoHighestBid.TickId)
@@ -20,49 +22,65 @@ func (be *BybitExchange) checkArbFromOsmo(pair osmocexfillertypes.Pair, thisAsks
 	// unscale osmoHighestBidPrice
 	osmoHighestBidPrice, err := be.unscalePrice(osmoHighestBidPrice, pair.Base, pair.Quote)
 	if err != nil {
-		panic(err)
+		be.logger.Error("Arb from OSMOSIS: unscaling error:", zap.Error(err))
+		return false
 	}
 
-	// get this lowest ask price converting to big dec
-	thisLowestAskPrice, err := osmomath.NewBigDecFromStr(thisLowestAsk.Price)
+	// get bybit lowest ask price converting to big dec
+	bybitLowestAskPrice, err := osmomath.NewBigDecFromStr(bybitLowestAsk.GetPrice())
 	if err != nil {
-		return err
+		be.logger.Error("Arb from OSMOSIS: parsing error:", zap.Error(err))
+		return false
 	}
 
-	fmt.Println(osmoHighestBidPrice.String(), thisLowestAskPrice.String())
-	if !osmoHighestBidPrice.GT(thisLowestAskPrice) {
+	fmt.Println(osmoHighestBidPrice.String(), bybitLowestAskPrice.String())
+	if !osmoHighestBidPrice.GT(bybitLowestAskPrice) {
 		// no arb found
-		return errors.New("no arb found")
+		be.logger.Info("Arb from OSMOSIS: not found")
+		return false
 	}
 
-	return nil
+	be.logger.Info("Arb from OSMOSIS: found")
+
+	return true
 }
 
-func (be *BybitExchange) checkArbFromThis(pair osmocexfillertypes.Pair, thisBids []osmocexfillertypes.OrderbookEntry, osmoAsks []orderbookplugindomain.Order) {
-	thisHighestBid := thisBids[0]
+func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitBids []osmocexfillertypes.OrderBasicI, osmoAsks []orderbookplugindomain.Order) bool {
+	bybitHighestBid := bybitBids[0]
 	osmoLowestAsk := osmoAsks[0]
 
-	// get this highest bid price converting to big dec
-	thisHighestBidPrice := osmomath.MustNewBigDecFromStr(thisHighestBid.Price)
+	// get bybit highest bid price converting to big dec
+	bybitHighestBidPrice := osmomath.MustNewBigDecFromStr(bybitHighestBid.GetPrice())
 
 	// get osmo lowest ask price from tick
-	osmoLowestAskPrice, _ := clmath.TickToPrice(osmoLowestAsk.TickId)
+	osmoLowestAskPriceUnscaled, err := clmath.TickToPrice(osmoLowestAsk.TickId)
+	if err != nil {
+		be.logger.Error("Arb from BYBIT: tick to price error:", zap.Error(err))
+		return false
+	}
 
 	// unscale osmoLowestAskPrice
-	osmoLowestAskPrice, err := be.unscalePrice(osmoLowestAskPrice, pair.Base, pair.Quote)
+	osmoLowestAskPrice, err := be.unscalePrice(osmoLowestAskPriceUnscaled, pair.Base, pair.Quote)
 	if err != nil {
-		panic(err)
+		be.logger.Error("Arb from BYBIT: unscaling error:", zap.Error(err))
+		return false
 	}
 
-	fmt.Println(osmoLowestAskPrice.String(), thisHighestBidPrice.String())
-	if !thisHighestBidPrice.GT(osmoLowestAskPrice) {
+	fmt.Println(osmoLowestAskPrice.String(), bybitHighestBidPrice.String())
+	if !bybitHighestBidPrice.GT(osmoLowestAskPrice) {
 		// no arb found
-		return
+		be.logger.Info("Arb from BYBIT: not found")
+		return false
 	}
+
+	be.logger.Info("Arb from BYBIT: found")
+	return true
 }
 
+// func (be *BybitExchange)
+
 // adjPrice = price * 10^(baseDecimals-quoteDecimals)
-// this "unscales" the price that was set at the time of limit order creation due to difference in tokens' precisions
+// bybit "unscales" the price that was set at the time of limit order creation due to difference in tokens' precisions
 func (be *BybitExchange) unscalePrice(price osmomath.BigDec, baseDenom, quoteDenom string) (osmomath.BigDec, error) {
 	baseMetadata, err := (*be.osmoTokensUseCase).GetMetadataByChainDenom(SymbolToChainDenom[baseDenom])
 	if err != nil {

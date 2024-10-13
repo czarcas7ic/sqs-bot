@@ -24,43 +24,49 @@ func NewOrderbookData(symbol string, bids, asks map[string]string) *OrderbookDat
 	}
 }
 
-func (o *OrderbookData) Bids() map[string]string {
+func (o *OrderbookData) Bids() []OrderBasicI {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	bids := make(map[string]string, len(o.bids))
+	bids := make([]OrderBasicI, 0, len(o.bids))
 	for price, size := range o.bids {
-		bids[price] = size
+		bids = append(bids, OrderbookEntry{
+			Price: price,
+			Size:  size,
+		})
 	}
 	return bids
 }
 
-func (o *OrderbookData) Asks() map[string]string {
+func (o *OrderbookData) Asks() []OrderBasicI {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	asks := make(map[string]string, len(o.asks))
+	asks := make([]OrderBasicI, 0, len(o.asks))
 	for price, size := range o.asks {
-		asks[price] = size
+		asks = append(asks, OrderbookEntry{
+			Price: price,
+			Size:  size,
+		})
 	}
 	return asks
 }
 
-func (o *OrderbookData) GetBid(price string) (string, bool) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+// func (o *OrderbookData) GetBid(price string) (string, bool) {
+// 	o.mu.Lock()
+// 	defer o.mu.Unlock()
 
-	size, ok := o.bids[price]
-	return size, ok
-}
+// 	size, ok := o.bids[price]
+// 	return size, ok
+// }
 
-func (o *OrderbookData) GetAsk(price string) (string, bool) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+// func (o *OrderbookData) GetAsk(price string) (string, bool) {
+// 	o.mu.Lock()
+// 	defer o.mu.Unlock()
 
-	size, ok := o.asks[price]
-	return size, ok
-}
+// 	size, ok := o.asks[price]
+// 	return size, ok
+// }
 
 func (o *OrderbookData) SetBid(price, size string) {
 	o.mu.Lock()
@@ -90,11 +96,11 @@ func (o *OrderbookData) RemoveAsk(price string) {
 	delete(o.asks, price)
 }
 
-func (o *OrderbookData) BidsDescending() []OrderbookEntry {
+func (o *OrderbookData) BidsDescending() []OrderBasicI {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	bids := make([]OrderbookEntry, 0, len(o.bids))
+	bids := make([]OrderBasicI, 0, len(o.bids))
 	for price, size := range o.bids {
 		bids = append(bids, OrderbookEntry{
 			Price: price,
@@ -103,18 +109,18 @@ func (o *OrderbookData) BidsDescending() []OrderbookEntry {
 	}
 
 	sort.Slice(bids, func(i, j int) bool {
-		priceI, _ := strconv.ParseFloat(bids[i].Price, 64)
-		priceJ, _ := strconv.ParseFloat(bids[j].Price, 64)
+		priceI, _ := strconv.ParseFloat(bids[i].GetPrice(), 64)
+		priceJ, _ := strconv.ParseFloat(bids[j].GetPrice(), 64)
 		return priceI > priceJ
 	})
 	return bids
 }
 
-func (o *OrderbookData) AsksAscending() []OrderbookEntry {
+func (o *OrderbookData) AsksAscending() []OrderBasicI {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	asks := make([]OrderbookEntry, 0, len(o.asks))
+	asks := make([]OrderBasicI, 0, len(o.asks))
 	for price, size := range o.asks {
 		asks = append(asks, OrderbookEntry{
 			Price: price,
@@ -123,8 +129,8 @@ func (o *OrderbookData) AsksAscending() []OrderbookEntry {
 	}
 
 	sort.Slice(asks, func(i, j int) bool {
-		priceI, _ := strconv.ParseFloat(asks[i].Price, 64)
-		priceJ, _ := strconv.ParseFloat(asks[j].Price, 64)
+		priceI, _ := strconv.ParseFloat(asks[i].GetPrice(), 64)
+		priceJ, _ := strconv.ParseFloat(asks[j].GetPrice(), 64)
 		return priceI < priceJ
 	})
 	return asks
@@ -134,6 +140,16 @@ type OrderbookEntry struct {
 	Price string
 	Size  string
 }
+
+func (o OrderbookEntry) GetPrice() string {
+	return o.Price
+}
+
+func (o OrderbookEntry) GetSize() string {
+	return o.Size
+}
+
+var _ OrderBasicI = (*OrderbookEntry)(nil)
 
 type Pair struct {
 	Base  string
