@@ -30,7 +30,7 @@ func (o *OrderbookData) Bids() []OrderBasicI {
 
 	bids := make([]OrderBasicI, 0, len(o.bids))
 	for price, size := range o.bids {
-		bids = append(bids, OrderbookEntry{
+		bids = append(bids, &OrderbookEntry{
 			Direction: "bid",
 			Price:     price,
 			Size:      size,
@@ -45,7 +45,7 @@ func (o *OrderbookData) Asks() []OrderBasicI {
 
 	asks := make([]OrderBasicI, 0, len(o.asks))
 	for price, size := range o.asks {
-		asks = append(asks, OrderbookEntry{
+		asks = append(asks, &OrderbookEntry{
 			Direction: "ask",
 			Price:     price,
 			Size:      size,
@@ -104,7 +104,7 @@ func (o *OrderbookData) BidsDescending() []OrderBasicI {
 
 	bids := make([]OrderBasicI, 0, len(o.bids))
 	for price, size := range o.bids {
-		bids = append(bids, OrderbookEntry{
+		bids = append(bids, &OrderbookEntry{
 			Direction: "bid",
 			Price:     price,
 			Size:      size,
@@ -125,7 +125,7 @@ func (o *OrderbookData) AsksAscending() []OrderBasicI {
 
 	asks := make([]OrderBasicI, 0, len(o.asks))
 	for price, size := range o.asks {
-		asks = append(asks, OrderbookEntry{
+		asks = append(asks, &OrderbookEntry{
 			Direction: "ask",
 			Price:     price,
 			Size:      size,
@@ -158,7 +158,7 @@ func (o OrderbookEntry) GetDirection() string {
 	return o.Direction
 }
 
-func (o OrderbookEntry) SetSize(size string) {
+func (o *OrderbookEntry) SetSize(size string) {
 	o.Size = size
 }
 
