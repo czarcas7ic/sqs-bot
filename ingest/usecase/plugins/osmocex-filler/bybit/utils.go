@@ -4,7 +4,10 @@ import (
 	"errors"
 
 	wsbybit "github.com/hirokisan/bybit/v2"
+	"github.com/osmosis-labs/osmosis/osmomath"
+	clmath "github.com/osmosis-labs/osmosis/v25/x/concentrated-liquidity/math"
 	"github.com/osmosis-labs/sqs/domain"
+	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
 	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 	"go.uber.org/zap"
 )
@@ -80,4 +83,20 @@ func (be *BybitExchange) getBybitOrderbookForPair(pair osmocexfillertypes.Pair) 
 	orderbook := orderbookAny.(*osmocexfillertypes.OrderbookData)
 
 	return orderbook, nil
+}
+
+func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, order orderbookplugindomain.Order) (osmomath.BigDec, error) {
+	// get osmo highest bid price from tick
+	osmoHighestBidPrice, err := clmath.TickToPrice(order.TickId)
+	if err != nil {
+		return osmomath.NewBigDec(-1), err
+	}
+
+	// unscale osmoHighestBidPrice
+	osmoHighestBidPrice, err = be.unscalePrice(osmoHighestBidPrice, pair.Base, pair.Quote)
+	if err != nil {
+		return osmomath.NewBigDec(-1), err
+	}
+
+	return osmoHighestBidPrice, nil
 }

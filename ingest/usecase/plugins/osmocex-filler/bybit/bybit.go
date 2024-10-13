@@ -105,16 +105,21 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 	}
 
 	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
-	fmt.Println("OSMO ORDERS: ", osmoOrders, bybitOrderbook)
 
 	// check arb from bybit exchange to osmo
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
+		fillAmount, buyFrom, err := be.getFillAmountAndDirection(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
+		if err != nil {
+			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
+			return
+		}
 
+		fmt.Println(fillAmount.String(), buyFrom)
 	}
 
 	// check arb from osmo to bybit exchange
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
-
+		be.getFillAmountAndDirection(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
 	}
 }
 

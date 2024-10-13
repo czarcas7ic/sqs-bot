@@ -13,9 +13,19 @@ type ExchangeI interface {
 }
 
 type OrderBasicI interface {
-	GetPrice() string // WARN: returns scaled price for osmo orders
+	GetPrice() string
 	GetSize() string
+	GetDirection() string
+
+	SetSize(string)
 }
+
+type ExchangeType int
+
+const (
+	OSMO ExchangeType = iota
+	BYBIT
+)
 
 // type OrderbookBasicI interface {
 // 	Asks() []OrderBasicI

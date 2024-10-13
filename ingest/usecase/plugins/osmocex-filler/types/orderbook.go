@@ -31,8 +31,9 @@ func (o *OrderbookData) Bids() []OrderBasicI {
 	bids := make([]OrderBasicI, 0, len(o.bids))
 	for price, size := range o.bids {
 		bids = append(bids, OrderbookEntry{
-			Price: price,
-			Size:  size,
+			Direction: "bid",
+			Price:     price,
+			Size:      size,
 		})
 	}
 	return bids
@@ -45,8 +46,9 @@ func (o *OrderbookData) Asks() []OrderBasicI {
 	asks := make([]OrderBasicI, 0, len(o.asks))
 	for price, size := range o.asks {
 		asks = append(asks, OrderbookEntry{
-			Price: price,
-			Size:  size,
+			Direction: "ask",
+			Price:     price,
+			Size:      size,
 		})
 	}
 	return asks
@@ -103,8 +105,9 @@ func (o *OrderbookData) BidsDescending() []OrderBasicI {
 	bids := make([]OrderBasicI, 0, len(o.bids))
 	for price, size := range o.bids {
 		bids = append(bids, OrderbookEntry{
-			Price: price,
-			Size:  size,
+			Direction: "bid",
+			Price:     price,
+			Size:      size,
 		})
 	}
 
@@ -123,8 +126,9 @@ func (o *OrderbookData) AsksAscending() []OrderBasicI {
 	asks := make([]OrderBasicI, 0, len(o.asks))
 	for price, size := range o.asks {
 		asks = append(asks, OrderbookEntry{
-			Price: price,
-			Size:  size,
+			Direction: "ask",
+			Price:     price,
+			Size:      size,
 		})
 	}
 
@@ -137,8 +141,9 @@ func (o *OrderbookData) AsksAscending() []OrderBasicI {
 }
 
 type OrderbookEntry struct {
-	Price string
-	Size  string
+	Direction string
+	Price     string
+	Size      string
 }
 
 func (o OrderbookEntry) GetPrice() string {
@@ -147,6 +152,14 @@ func (o OrderbookEntry) GetPrice() string {
 
 func (o OrderbookEntry) GetSize() string {
 	return o.Size
+}
+
+func (o OrderbookEntry) GetDirection() string {
+	return o.Direction
+}
+
+func (o OrderbookEntry) SetSize(size string) {
+	o.Size = size
 }
 
 var _ OrderBasicI = (*OrderbookEntry)(nil)
