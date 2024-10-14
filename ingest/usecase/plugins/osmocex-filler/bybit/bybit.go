@@ -2,10 +2,10 @@ package bybit
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	"github.com/osmosis-labs/sqs/log"
 	"go.uber.org/zap"
@@ -13,11 +13,15 @@ import (
 	bybit "github.com/wuhewuhe/bybit.go.api"
 
 	wsbybit "github.com/hirokisan/bybit/v2"
+	"github.com/osmosis-labs/sqs/domain/keyring"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
+	passthroughdomain "github.com/osmosis-labs/sqs/domain/passthrough"
 	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 )
 
 type BybitExchange struct {
+	ctx context.Context
+
 	// uses websocket for orderbook data processing for performance
 	wsclient wsbybit.V5WebsocketPublicServiceI
 	// http client for trade calls
@@ -27,9 +31,12 @@ type BybitExchange struct {
 	registeredPairs map[osmocexfillertypes.Pair]struct{}
 
 	// upstream pointers
-	osmoPoolIdToOrders *sync.Map
-	osmoPoolsUseCase   *mvc.PoolsUsecase
-	osmoTokensUseCase  *mvc.TokensUsecase
+	osmoPoolIdToOrders        *sync.Map
+	osmoPoolsUsecase          *mvc.PoolsUsecase
+	osmoTokensUsecase         *mvc.TokensUsecase
+	osmoRouterUsecase         *mvc.RouterUsecase
+	osmoKeyring               *keyring.Keyring
+	osmoPassthroughGRPCClient *passthroughdomain.PassthroughGRPCClient
 
 	// bybit orderbooks: Symbol -> OrderbookData
 	orderbooks sync.Map
@@ -40,15 +47,19 @@ type BybitExchange struct {
 var _ osmocexfillertypes.ExchangeI = (*BybitExchange)(nil)
 
 const (
-	HTTP_URL = bybit.MAINNET // dev
-	DDEPTH   = 50            // default depth for an orderbook
+	HTTP_URL      = bybit.MAINNET
+	DEFAULT_DEPTH = 50 // default depth for an orderbook
 )
 
 func New(
-	logger log.Logger,
+	ctx context.Context,
 	osmoPoolIdToOrders *sync.Map,
-	osmoPoolsUseCase *mvc.PoolsUsecase,
-	osmoTokensUseCase *mvc.TokensUsecase,
+	osmoPoolsUsecase *mvc.PoolsUsecase,
+	osmoTokensUsecase *mvc.TokensUsecase,
+	osmoRouterUsecase *mvc.RouterUsecase,
+	osmoKeyring *keyring.Keyring,
+	osmoPassthroughGRPCClient *passthroughdomain.PassthroughGRPCClient,
+	logger log.Logger,
 ) *BybitExchange {
 	wsclient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"))
 	svc, err := wsclient.V5().Public(wsbybit.CategoryV5Spot)
@@ -59,13 +70,17 @@ func New(
 	httpclient := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"), bybit.WithBaseURL(HTTP_URL))
 
 	return &BybitExchange{
-		wsclient:           svc,
-		httpclient:         httpclient,
-		registeredPairs:    make(map[osmocexfillertypes.Pair]struct{}),
-		osmoPoolIdToOrders: osmoPoolIdToOrders,
-		osmoPoolsUseCase:   osmoPoolsUseCase,
-		osmoTokensUseCase:  osmoTokensUseCase,
-		logger:             logger,
+		ctx:                       ctx,
+		wsclient:                  svc,
+		httpclient:                httpclient,
+		registeredPairs:           make(map[osmocexfillertypes.Pair]struct{}),
+		osmoPoolIdToOrders:        osmoPoolIdToOrders,
+		osmoPoolsUsecase:          osmoPoolsUsecase,
+		osmoTokensUsecase:         osmoTokensUsecase,
+		osmoRouterUsecase:         osmoRouterUsecase,
+		osmoKeyring:               osmoKeyring,
+		osmoPassthroughGRPCClient: osmoPassthroughGRPCClient,
+		logger:                    logger,
 	}
 }
 
@@ -108,25 +123,27 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 
 	// check arb from bybit exchange to osmo
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
-		fillAmount, buyFrom, err := be.getFillAmountAndDirection(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
+		fillAmount, err := be.getFillAmountAndDirection(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
 		if err != nil {
 			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
 			return
 		}
 
-		fmt.Println(fillAmount.String(), buyFrom)
+		// fill ask on osmo
+		coinIn := sdk.NewCoin(pair.Quote, fillAmount.Dec().TruncateInt())
+		be.tradeOsmosis(coinIn, pair.Base, osmoOrderbook.PoolID)
 	}
 
 	// check arb from osmo to bybit exchange
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
-		be.getFillAmountAndDirection(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
+		be.getFillAmountAndDirection(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
 	}
 }
 
 func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
 	for _, pair := range ArbPairs {
 		be.registeredPairs[pair] = struct{}{}
-		if err := be.subscribeOrderbook(pair, DDEPTH); err != nil {
+		if err := be.subscribeOrderbook(pair, DEFAULT_DEPTH); err != nil {
 			return err
 		}
 	}
@@ -142,5 +159,3 @@ func (be *BybitExchange) SupportedPair(pair osmocexfillertypes.Pair) bool {
 }
 
 func (be *BybitExchange) registeredPairsSize() int { return len(be.registeredPairs) }
-
-// func (be *BybitExchange)

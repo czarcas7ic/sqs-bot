@@ -61,13 +61,14 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 }
 
 // getFillAmountAndDirection operates on orders found profitable, calculates the amount of profitable fill and the exchange from which to buy
+// fillAmount refers to the amount of tokens that should be bought on asks side
 func (be *BybitExchange) getFillAmountAndDirection(
 	pair osmocexfillertypes.Pair,
 	bybitOrders []osmocexfillertypes.OrderBasicI,
 	osmoOrders []orderbookplugindomain.Order,
-) (fillAmount osmomath.BigDec, buyFrom osmocexfillertypes.ExchangeType, err error) {
+) (fillAmount osmomath.BigDec, err error) {
 	if len(bybitOrders) == 0 || len(osmoOrders) == 0 {
-		return osmomath.NewBigDec(0), -1, errors.New("empty orders")
+		return osmomath.NewBigDec(0), errors.New("empty orders")
 	}
 
 	curAskIndex := 0
@@ -75,14 +76,13 @@ func (be *BybitExchange) getFillAmountAndDirection(
 
 	switch bybitOrders[0].GetDirection() {
 	case "bid": // highest bid on bybit > lowest ask on osmo -> buy from osmo, sell on bybit
-
 		curAsk := &osmoOrders[curAskIndex]
 		curBid := &bybitOrders[curBidIndex]
 
 		curAskPrice, err := be.getUnscaledPriceForOrder(pair, *curAsk)
 		if err != nil {
 			be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
-			return osmomath.NewBigDec(0), -1, err
+			return osmomath.NewBigDec(0), err
 		}
 
 		curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
@@ -107,7 +107,6 @@ func (be *BybitExchange) getFillAmountAndDirection(
 			curBid = &bybitOrders[curBidIndex]
 		}
 
-		buyFrom = osmocexfillertypes.OSMO
 	case "ask": // lowest ask on bybit < highest bid on osmo -> buy from bybit, sell on osmo
 		curAsk := &bybitOrders[curAskIndex]
 		curBid := &osmoOrders[curBidIndex]
@@ -116,7 +115,7 @@ func (be *BybitExchange) getFillAmountAndDirection(
 		curBidPrice, err := be.getUnscaledPriceForOrder(pair, *curBid)
 		if err != nil {
 			be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
-			return osmomath.NewBigDec(0), -1, err
+			return osmomath.NewBigDec(0), err
 		}
 
 		for curAskPrice.LT(curBidPrice) {
@@ -139,30 +138,28 @@ func (be *BybitExchange) getFillAmountAndDirection(
 			curAsk = &bybitOrders[curAskIndex]
 			curBid = &osmoOrders[curBidIndex]
 		}
-
-		buyFrom = osmocexfillertypes.BYBIT
 	default:
 		be.logger.Error("invalid order direction", zap.String("direction", bybitOrders[0].GetDirection()))
-		return osmomath.NewBigDec(0), -1, errors.New("invalid order direction")
+		return osmomath.NewBigDec(0), errors.New("invalid order direction")
 	}
 
 	if fillAmount.IsZero() {
 		be.logger.Info("no amount to fill")
-		return osmomath.NewBigDec(0), -1, errors.New("no amount to fill")
+		return osmomath.NewBigDec(0), errors.New("no amount to fill")
 	}
 
-	return fillAmount, buyFrom, nil
+	return
 }
 
 // adjPrice = price * 10^(baseDecimals-quoteDecimals)
 // bybit "unscales" the price that was set at the time of limit order creation due to difference in tokens' precisions
 func (be *BybitExchange) unscalePrice(price osmomath.BigDec, baseDenom, quoteDenom string) (osmomath.BigDec, error) {
-	baseMetadata, err := (*be.osmoTokensUseCase).GetMetadataByChainDenom(SymbolToChainDenom[baseDenom])
+	baseMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(SymbolToChainDenom[baseDenom])
 	if err != nil {
 		return osmomath.BigDec{}, err
 	}
 
-	quoteMetadata, err := (*be.osmoTokensUseCase).GetMetadataByChainDenom(SymbolToChainDenom[quoteDenom])
+	quoteMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(SymbolToChainDenom[quoteDenom])
 	if err != nil {
 		return osmomath.BigDec{}, err
 	}

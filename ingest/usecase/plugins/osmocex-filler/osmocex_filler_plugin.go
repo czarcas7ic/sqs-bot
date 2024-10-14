@@ -9,8 +9,11 @@ import (
 	"github.com/osmosis-labs/sqs/log"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/osmosis-labs/sqs/domain/keyring"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
+	passthroughdomain "github.com/osmosis-labs/sqs/domain/passthrough"
+
 	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/bybit"
 	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 	"go.opentelemetry.io/otel"
@@ -27,6 +30,8 @@ type osmocexFillerIngestPlugin struct {
 	atomicBool           atomic.Bool
 	orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient
 
+	osmoKeyring keyring.Keyring
+
 	Exchanges []osmocexfillertypes.ExchangeI
 
 	logger log.Logger
@@ -42,15 +47,17 @@ var (
 
 var _ domain.EndBlockProcessPlugin = &osmocexFillerIngestPlugin{}
 
-func New(poolsUseCase mvc.PoolsUsecase, tokensUseCase mvc.TokensUsecase, orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient, logger log.Logger) *osmocexFillerIngestPlugin {
+func New(poolsUseCase mvc.PoolsUsecase, tokensUseCase mvc.TokensUsecase, routerUsecase mvc.RouterUsecase, passthroughGRPCClient passthroughdomain.PassthroughGRPCClient, osmoKeyring keyring.Keyring, orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient, logger log.Logger) *osmocexFillerIngestPlugin {
+	ctx := context.Background()
 	orderMapByPoolID := &sync.Map{}
 
 	exchanges := []osmocexfillertypes.ExchangeI{
-		bybit.New(logger, orderMapByPoolID, &poolsUseCase, &tokensUseCase),
+		bybit.New(ctx, orderMapByPoolID, &poolsUseCase, &tokensUseCase, &routerUsecase, &osmoKeyring, &passthroughGRPCClient, logger),
+		// add other exchanges here after implementation
 	}
 
 	plugin := &osmocexFillerIngestPlugin{
-		ctx:                  context.Background(),
+		ctx:                  ctx,
 		poolsUseCase:         poolsUseCase,
 		orderbookCWAPIClient: orderbookCWAPIClient,
 		orderMapByPoolID:     orderMapByPoolID,
