@@ -78,6 +78,10 @@ func New(
 		panic(err)
 	}
 
+	if os.Getenv("BYBIT_API_KEY") == "" || os.Getenv("BYBIT_SECRET_KEY") == "" {
+		panic("BYBIT_API_KEY or BYBIT_SECRET_KEY not set")
+	}
+
 	wsclient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"))
 	svc, err := wsclient.V5().Public(wsbybit.CategoryV5Spot)
 	if err != nil {
