@@ -19,13 +19,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type TradeType int
-
-const (
-	BUY TradeType = iota
-	SELL
-)
-
 // osmosis variables
 var (
 	chainID = "osmosis-1"
@@ -40,6 +33,8 @@ var (
 	defaultGasPrice = osmomath.MustNewBigDecFromStr("0.1")
 )
 
+// executes osmo trade
+// TODO: move somewhere else
 func (be *BybitExchange) tradeOsmosis(coinIn sdk.Coin, denomOut string, orderbookPoolId uint64) {
 	quote, err := (*be.osmoRouterUsecase).GetCustomDirectQuote(be.ctx, coinIn, denomOut, orderbookPoolId)
 	if err != nil {

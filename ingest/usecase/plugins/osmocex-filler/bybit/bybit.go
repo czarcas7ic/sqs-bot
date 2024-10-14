@@ -3,9 +3,12 @@ package bybit
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/joho/godotenv"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	"github.com/osmosis-labs/sqs/log"
 	"go.uber.org/zap"
@@ -61,6 +64,20 @@ func New(
 	osmoPassthroughGRPCClient *passthroughdomain.PassthroughGRPCClient,
 	logger log.Logger,
 ) *BybitExchange {
+	// Get the path of the current file
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("No caller information")
+	}
+
+	// Get the directory of the current file
+	currentDir := filepath.Dir(currentFile)
+
+	err := godotenv.Load(currentDir + "/.env")
+	if err != nil {
+		panic(err)
+	}
+
 	wsclient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"))
 	svc, err := wsclient.V5().Public(wsbybit.CategoryV5Spot)
 	if err != nil {
@@ -131,9 +148,12 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 			return
 		}
 
-		// fill ask on osmo
+		// fill ask on osmo (buy on osmo)
 		coinIn := sdk.NewCoin(pair.Quote, fillAmount.Dec().TruncateInt())
 		be.tradeOsmosis(coinIn, pair.Base, osmoOrderbook.PoolID)
+
+		// fill bid on bybit (sell on bybit)
+		be.spot(pair, osmocexfillertypes.SELL, fillAmount.String())
 	}
 
 	// check arb from osmo to bybit exchange
@@ -144,9 +164,12 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 			return
 		}
 
-		// fill bid on osmo
+		// fill bid on osmo (sell on osmo)
 		coinIn := sdk.NewCoin(pair.Base, fillAmount.Dec().TruncateInt())
 		be.tradeOsmosis(coinIn, pair.Quote, osmoOrderbook.PoolID)
+
+		// fill ask on bybit (buy on bybit)
+		be.spot(pair, osmocexfillertypes.BUY, fillAmount.String())
 	}
 }
 

@@ -284,8 +284,14 @@ func NewSideCarQueryServer(appCodec codec.Codec, config domain.Config, logger lo
 				}
 
 				if plugin.GetName() == osmocexplugindomain.OsmoCexPluginName {
+					// Create keyring
+					keyring, err := keyring.New()
+					if err != nil {
+						return nil, err
+					}
+
 					logger.Info("Using osmocex filler plugin")
-					currentPlugin = osmocexfiller.New(poolsUseCase, tokensUseCase, routerUsecase, orderBookAPIClient, logger)
+					currentPlugin = osmocexfiller.New(poolsUseCase, tokensUseCase, routerUsecase, passthroughGRPCClient, keyring, orderBookAPIClient, logger)
 				}
 
 				// Register the plugin with the ingest use case
