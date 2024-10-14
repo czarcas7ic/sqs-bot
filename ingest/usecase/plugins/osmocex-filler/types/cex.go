@@ -2,6 +2,9 @@ package osmocexfillertypes
 
 import (
 	"context"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/osmosis-labs/osmosis/osmomath"
 )
 
 type ExchangeI interface {
@@ -10,6 +13,9 @@ type ExchangeI interface {
 
 	// Signal starts the arb process at the beginning of each block
 	Signal()
+
+	// GetBotBalances returns the balances of the bot on exchange and on osmosis
+	GetBotBalances() (map[string]CoinBalanceI, sdk.Coins, error)
 }
 
 type OrderBasicI interface {
@@ -27,18 +33,10 @@ const (
 	BYBIT
 )
 
-// type OrderbookBasicI interface {
-// 	Asks() []OrderBasicI
-// 	Bids() []OrderBasicI
+// CoinBalanceI is an interface for a coin returned when querying exchange balance
+type CoinBalanceI interface {
+	Balance() string
+	BigDecBalance() osmomath.BigDec
 
-// 	SetAsk(price, size string)
-// 	SetBid(price, size string)
-
-// 	RemoveAsk(price string)
-// 	RemoveBid(price string)
-
-// 	AsksAscending() []OrderBasicI
-// 	BidsDescending() []OrderBasicI
-// }
-
-// var _ OrderbookBasicI = (*orderbookplugindomain.OrdersResponse)(nil)
+	Token() string
+}

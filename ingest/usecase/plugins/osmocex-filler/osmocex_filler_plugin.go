@@ -21,16 +21,15 @@ import (
 )
 
 type osmocexFillerIngestPlugin struct {
-	ctx           context.Context
-	poolsUseCase  mvc.PoolsUsecase
-	tokensUseCase mvc.TokensUsecase
+	ctx context.Context
+
+	poolsUseCase mvc.PoolsUsecase
+	// tokensUseCase mvc.TokensUsecase
 
 	orderMapByPoolID *sync.Map
 
 	atomicBool           atomic.Bool
 	orderbookCWAPIClient orderbookplugindomain.OrderbookCWAPIClient
-
-	osmoKeyring keyring.Keyring
 
 	Exchanges []osmocexfillertypes.ExchangeI
 

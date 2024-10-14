@@ -27,7 +27,7 @@ func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAs
 
 	if !osmoHighestBidPrice.GT(bybitLowestAskPrice) {
 		// no arb found
-		be.logger.Info("arbitrage from OSMOSIS not found. Arbitrage offset is: ", zap.String("offset", bybitLowestAskPrice.Sub(osmoHighestBidPrice).String()))
+		be.logger.Info("arbitrage from OSMOSIS not found", zap.String("highest bid", osmoHighestBidPrice.String()), zap.String("lowest ask", bybitLowestAskPrice.String()))
 		return false
 	}
 
@@ -53,7 +53,7 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 
 	if !bybitHighestBidPrice.GT(osmoLowestAskPrice) {
 		// no arb found
-		be.logger.Info("arbitrage from BYBIT not found. Arbitrage offset is: ", zap.String("offset", osmoLowestAskPrice.Sub(bybitHighestBidPrice).String()))
+		be.logger.Info("arbitrage from BYBIT not found", zap.String("highest bid", bybitHighestBidPrice.String()), zap.String("lowest ask", osmoLowestAskPrice.String()))
 		return false
 	}
 

@@ -67,6 +67,24 @@ func (be *BybitExchange) updateBybitOrderbook(data wsbybit.V5WebsocketPublicOrde
 	be.orderbooks.Store(string(data.Symbol), orderbook)
 }
 
+// adjustFillAmount adjusts fill amount based on available balances (effectively, sets it to min of three)
+// also returns final 1/fillAmount
+func (be *BybitExchange) adjustFillAmount(fillAmount, directBalance, inverseBalance osmomath.BigDec) (osmomath.BigDec, osmomath.BigDec) {
+	inverseFillAmount := osmomath.OneBigDec().Quo(fillAmount)
+
+	if directBalance.LT(fillAmount) {
+		fillAmount = directBalance
+		inverseFillAmount = osmomath.OneBigDec().Quo(fillAmount)
+	}
+
+	if inverseBalance.LT(inverseFillAmount) {
+		inverseFillAmount = inverseBalance
+		fillAmount = osmomath.OneBigDec().Quo(inverseFillAmount)
+	}
+
+	return fillAmount, inverseFillAmount
+}
+
 func (be *BybitExchange) getOsmoOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
 	base := SymbolToChainDenom[pair.Base]
 	quote := SymbolToChainDenom[pair.Quote]

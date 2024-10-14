@@ -89,7 +89,7 @@ func New(
 		panic(err)
 	}
 
-	httpclient := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"), bybit.WithBaseURL(HTTP_URL))
+	httpclient := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"), bybit.WithBaseURL(HTTP_URL))
 
 	return &BybitExchange{
 		ctx:                       ctx,
@@ -106,8 +106,7 @@ func New(
 	}
 }
 
-// Signal signals the websocket callback to start matching orderbooks
-// Signal is called at the beginning of each block
+// RegisterPairs implements osmocexfillertypes.ExchangeI
 func (be *BybitExchange) Signal() {
 	newBlockWg := sync.WaitGroup{}
 	newBlockWg.Add(be.registeredPairsSize())
@@ -117,6 +116,38 @@ func (be *BybitExchange) Signal() {
 	}
 
 	newBlockWg.Wait() // blocks until all orderbooks are processed for bybit block
+}
+
+// RegisterPairs implements osmocexfillertypes.ExchangeI
+func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
+	for _, pair := range ArbPairs {
+		be.registeredPairs[pair] = struct{}{}
+		if err := be.subscribeOrderbook(pair, DEFAULT_DEPTH); err != nil {
+			return err
+		}
+	}
+
+	go be.wsclient.Start(ctx, nil)
+
+	return nil
+}
+
+func (be *BybitExchange) GetBotBalances() (map[string]osmocexfillertypes.CoinBalanceI, sdk.Coins, error) {
+	// get bybit balances
+	bybitBalances, err := be.getBybitBalances()
+	if err != nil {
+		be.logger.Error("failed to get bybit balances", zap.Error(err))
+		return nil, nil, err
+	}
+
+	// get osmo balancess
+	osmoBalances, err := (*be.osmoPassthroughGRPCClient).AllBalances(be.ctx, (*be.osmoKeyring).GetAddress().String())
+	if err != nil {
+		be.logger.Error("failed to get osmo balances", zap.Error(err))
+		return nil, nil, err
+	}
+
+	return bybitBalances, osmoBalances, nil
 }
 
 // processPair tries to find an orderbook profitable route between the two exchanges for a given pair
@@ -147,55 +178,67 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 	// if true -> bybit.highestBid > osmo.lowestAsk
 	// so, we need to buy from osmo and sell on bybit
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
+		// get total available fill amount
 		fillAmount, err := be.calculateFillAmount(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
 		if err != nil {
 			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
 			return
 		}
 
+		// get balances (do not move outside of for loop )
+		bybitBalances, osmoBalances, err := be.GetBotBalances()
+		if err != nil {
+			be.logger.Error("failed to get bot balances", zap.Error(err))
+			return
+		}
+
+		// get balances in big dec
+		osmoBalanceBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.Quote).BigInt())
+		bybitBalanceBigDec := bybitBalances[pair.Base].BigDecBalance()
+
+		// get final fill amount and inverse fill amount
+		var inverseFillAmount osmomath.BigDec
+		fillAmount, inverseFillAmount = be.adjustFillAmount(fillAmount, bybitBalanceBigDec, osmoBalanceBigDec)
+
 		// fill ask on osmo (buy on osmo)
 		coinIn := sdk.NewCoin(pair.Quote, fillAmount.Dec().TruncateInt())
 		be.tradeOsmosis(coinIn, pair.Base, osmoOrderbook.PoolID)
 
 		// fill bid on bybit (sell on bybit)
-		inverse := osmomath.OneBigDec().Quo(fillAmount) // inverse because "sell" expects base tokens (ex: BTC) and "buy" expects quote tokens (ex: USDT)
-		be.spot(pair, osmocexfillertypes.SELL, inverse.String())
+		be.spot(pair, osmocexfillertypes.SELL, inverseFillAmount.String())
 	}
 
 	// check arb from osmo to bybit exchange
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
+		// get total available fill amount
 		fillAmount, err := be.calculateFillAmount(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
 		if err != nil {
 			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
 			return
 		}
 
+		// get balances
+		bybitBalances, osmoBalances, err := be.GetBotBalances()
+		if err != nil {
+			be.logger.Error("failed to get bot balances", zap.Error(err))
+			return
+		}
+
+		// get balances in big dec
+		osmoBalanceBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.Base).BigInt())
+		bybitBalanceBigDec := bybitBalances[pair.Quote].BigDecBalance()
+
+		// get final fill amount and inverse fill amount
+		var inverseFillAmount osmomath.BigDec
+		fillAmount, inverseFillAmount = be.adjustFillAmount(fillAmount, osmoBalanceBigDec, bybitBalanceBigDec)
+
 		// fill bid on osmo (sell on osmo)
-		inverse := osmomath.OneBigDec().Quo(fillAmount) // inverse because "sell" expects base tokens (ex: BTC) and "buy" expects quote tokens (ex: USDT)
-		coinIn := sdk.NewCoin(pair.Base, inverse.Dec().TruncateInt())
+		coinIn := sdk.NewCoin(pair.Base, inverseFillAmount.Dec().TruncateInt())
 		be.tradeOsmosis(coinIn, pair.Quote, osmoOrderbook.PoolID)
 
 		// fill ask on bybit (buy on bybit)
 		be.spot(pair, osmocexfillertypes.BUY, fillAmount.String())
 	}
-}
-
-func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
-	for _, pair := range ArbPairs {
-		be.registeredPairs[pair] = struct{}{}
-		if err := be.subscribeOrderbook(pair, DEFAULT_DEPTH); err != nil {
-			return err
-		}
-	}
-
-	go be.wsclient.Start(ctx, nil)
-
-	return nil
-}
-
-func (be *BybitExchange) SupportedPair(pair osmocexfillertypes.Pair) bool {
-	_, ok := be.registeredPairs[pair]
-	return ok
 }
 
 func (be *BybitExchange) registeredPairsSize() int { return len(be.registeredPairs) }
