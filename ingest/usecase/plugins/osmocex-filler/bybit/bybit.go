@@ -122,8 +122,10 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
 
 	// check arb from bybit exchange to osmo
+	// if true -> bybit.highestBid > osmo.lowestAsk
+	// so, we need to buy from osmo and sell on bybit
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
-		fillAmount, err := be.getFillAmountAndDirection(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
+		fillAmount, err := be.calculateFillAmount(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
 		if err != nil {
 			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
 			return
@@ -136,7 +138,15 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 
 	// check arb from osmo to bybit exchange
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
-		be.getFillAmountAndDirection(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
+		fillAmount, err := be.calculateFillAmount(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
+		if err != nil {
+			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
+			return
+		}
+
+		// fill bid on osmo
+		coinIn := sdk.NewCoin(pair.Base, fillAmount.Dec().TruncateInt())
+		be.tradeOsmosis(coinIn, pair.Quote, osmoOrderbook.PoolID)
 	}
 }
 
