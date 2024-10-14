@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/joho/godotenv"
+	"github.com/osmosis-labs/osmosis/osmomath"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	"github.com/osmosis-labs/sqs/log"
 	"go.uber.org/zap"
@@ -78,11 +79,11 @@ func New(
 		panic(err)
 	}
 
-	if os.Getenv("BYBIT_API_KEY") == "" || os.Getenv("BYBIT_SECRET_KEY") == "" {
-		panic("BYBIT_API_KEY or BYBIT_SECRET_KEY not set")
+	if os.Getenv("BYBIT_API_KEY") == "" || os.Getenv("BYBIT_API_SECRET") == "" {
+		panic("BYBIT_API_KEY or BYBIT_API_SECRET not set")
 	}
 
-	wsclient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_SECRET_KEY"))
+	wsclient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"))
 	svc, err := wsclient.V5().Public(wsbybit.CategoryV5Spot)
 	if err != nil {
 		panic(err)
@@ -157,7 +158,8 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 		be.tradeOsmosis(coinIn, pair.Base, osmoOrderbook.PoolID)
 
 		// fill bid on bybit (sell on bybit)
-		be.spot(pair, osmocexfillertypes.SELL, fillAmount.String())
+		inverse := osmomath.OneBigDec().Quo(fillAmount) // inverse because "sell" expects base tokens (ex: BTC) and "buy" expects quote tokens (ex: USDT)
+		be.spot(pair, osmocexfillertypes.SELL, inverse.String())
 	}
 
 	// check arb from osmo to bybit exchange
@@ -169,7 +171,8 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, wg *sync.Wait
 		}
 
 		// fill bid on osmo (sell on osmo)
-		coinIn := sdk.NewCoin(pair.Base, fillAmount.Dec().TruncateInt())
+		inverse := osmomath.OneBigDec().Quo(fillAmount) // inverse because "sell" expects base tokens (ex: BTC) and "buy" expects quote tokens (ex: USDT)
+		coinIn := sdk.NewCoin(pair.Base, inverse.Dec().TruncateInt())
 		be.tradeOsmosis(coinIn, pair.Quote, osmoOrderbook.PoolID)
 
 		// fill ask on bybit (buy on bybit)

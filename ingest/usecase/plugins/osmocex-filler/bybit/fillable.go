@@ -63,6 +63,7 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 
 // getFillAmountAndDirection operates on orders found profitable, calculates the amount of profitable fill and the exchange from which to buy
 // fillAmount refers to the amount of tokens that should be bought on asks side
+// fillAmount is calculated in quote tokens
 func (be *BybitExchange) calculateFillAmount(
 	pair osmocexfillertypes.Pair,
 	bybitOrders []osmocexfillertypes.OrderBasicI,

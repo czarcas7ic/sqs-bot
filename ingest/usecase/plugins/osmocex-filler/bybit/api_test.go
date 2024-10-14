@@ -1,58 +1,46 @@
-package bybit
+package bybit_test
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
-	"time"
 
-	wsbybit "github.com/hirokisan/bybit/v2"
+	"github.com/joho/godotenv"
+	bybit "github.com/wuhewuhe/bybit.go.api"
 )
 
-func TestWs(t *testing.T) {
-	wsClient := wsbybit.NewWebsocketClient().WithAuth(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"))
-	svc, err := wsClient.V5().Public(wsbybit.CategoryV5Spot)
-	if err != nil {
-		t.Fatal(err)
+func Test(t *testing.T) {
+	// Get the path of the current file
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("No caller information")
 	}
 
-	// svc.SubscribeOrderBook(
-	// 	wsbybit.V5WebsocketPublicOrderBookParamKey{
-	// 		Depth:  1,
-	// 		Symbol: wsbybit.SymbolV5("BTCUSDT"),
-	// 	},
-	// 	func(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
-	// 		wg := &sync.WaitGroup{}
-	// 		wg.Add(1)
-	// 		go func() {
-	// 			defer wg.Done()
-	// 			fmt.Println(1, resp)
-	// 			time.Sleep(5 * time.Second)
-	// 		}()
+	// Get the directory of the current file
+	currentDir := filepath.Dir(currentFile)
 
-	// 		wg.Wait()
-	// 		return nil
-	// 	},
-	// )
+	err := godotenv.Load(currentDir + "/.env")
+	if err != nil {
+		panic(err)
+	}
 
-	svc.SubscribeOrderBook(
-		wsbybit.V5WebsocketPublicOrderBookParamKey{
-			Depth:  50,
-			Symbol: wsbybit.SymbolV5("BTCUSDC"),
-		},
-		func(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
-			fmt.Println("BIDS: ", resp.Data.Bids, resp.TimeStamp, resp.Type)
-			fmt.Println("ASKS: ", resp.Data.Asks, resp.TimeStamp, resp.Type)
+	if os.Getenv("BYBIT_API_KEY") == "" || os.Getenv("BYBIT_API_SECRET") == "" {
+		fmt.Println(currentDir+"/.env", os.Getenv("BYBIT_API_KEY") == "")
+	}
 
-			time.Sleep(1 * time.Second)
-			return nil
-		},
-	)
+	if true { // prevent accidental trades
+		panic("BYBIT_API_KEY or BYBIT_API_SECRET not set")
+	}
 
-	go svc.Start(context.Background(), nil)
+	client := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"), bybit.WithBaseURL(bybit.MAINNET))
+	order := client.NewPlaceOrderService("spot", "BTCUSDT", "sell", "Market", "0.00001497")
+	result, err := order.Do(context.Background())
+	if err != nil {
+		fmt.Println(err)
+	}
 
-	fmt.Println("test")
-
-	select {}
+	fmt.Println(bybit.PrettyPrint(result))
 }
