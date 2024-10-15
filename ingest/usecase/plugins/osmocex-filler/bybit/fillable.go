@@ -27,11 +27,11 @@ func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAs
 
 	if !osmoHighestBidPrice.GT(bybitLowestAskPrice) {
 		// no arb found
-		be.logger.Info("arbitrage from OSMOSIS not found", zap.String("highest bid", osmoHighestBidPrice.String()), zap.String("lowest ask", bybitLowestAskPrice.String()))
+		be.logger.Info("arbitrage from OSMOSIS not found", zap.String("pair", pair.String()), zap.String("highest bid", osmoHighestBidPrice.String()), zap.String("lowest ask", bybitLowestAskPrice.String()))
 		return false
 	}
 
-	be.logger.Info("arbitrage from OSMOSIS: found")
+	be.logger.Info("arbitrage from OSMOSIS: found", zap.String("pair", pair.String()), zap.String("highest bid", osmoHighestBidPrice.String()), zap.String("lowest ask", bybitLowestAskPrice.String()))
 
 	return true
 }
@@ -53,17 +53,17 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 
 	if !bybitHighestBidPrice.GT(osmoLowestAskPrice) {
 		// no arb found
-		be.logger.Info("arbitrage from BYBIT not found", zap.String("highest bid", bybitHighestBidPrice.String()), zap.String("lowest ask", osmoLowestAskPrice.String()))
+		be.logger.Info("arbitrage from BYBIT not found", zap.String("pair", pair.String()), zap.String("highest bid", bybitHighestBidPrice.String()), zap.String("lowest ask", osmoLowestAskPrice.String()))
 		return false
 	}
 
-	be.logger.Info("arbitrage from BYBIT: found")
+	be.logger.Info("arbitrage from BYBIT: found", zap.String("pair", pair.String()), zap.String("highest bid", bybitHighestBidPrice.String()), zap.String("lowest ask", osmoLowestAskPrice.String()))
 	return true
 }
 
 // getFillAmountAndDirection operates on orders found profitable, calculates the amount of profitable fill and the exchange from which to buy
 // fillAmount refers to the amount of tokens that should be bought on asks side
-// fillAmount is calculated in quote tokens
+// fillAmount is calculated in base tokens
 func (be *BybitExchange) calculateFillAmount(
 	pair osmocexfillertypes.Pair,
 	bybitOrders []osmocexfillertypes.OrderBasicI,
@@ -75,27 +75,38 @@ func (be *BybitExchange) calculateFillAmount(
 
 	curAskIndex := 0
 	curBidIndex := 0
+	fillAmount = osmomath.NewBigDec(0)
 
 	switch bybitOrders[0].GetDirection() {
 	case "bid": // highest bid on bybit > lowest ask on osmo -> buy from osmo, sell on bybit
-		curAsk := &osmoOrders[curAskIndex]
-		curBid := &bybitOrders[curBidIndex]
+		var curAsk *orderbookplugindomain.Order
+		var curBid *osmocexfillertypes.OrderBasicI
 
-		curAskPrice, err := be.getUnscaledPriceForOrder(pair, *curAsk)
-		if err != nil {
-			be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
-			return osmomath.NewBigDec(0), err
-		}
+		// curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
+		for curAskIndex < len(osmoOrders) && curBidIndex < len(bybitOrders) {
+			curAsk = &osmoOrders[curAskIndex]
+			curBid = &bybitOrders[curBidIndex]
 
-		curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
-		for curAskPrice.LT(curBidPrice) {
+			curAskPrice, err := be.getUnscaledPriceForOrder(pair, *curAsk)
+			if err != nil {
+				be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
+				return osmomath.NewBigDec(0), err
+			}
+
+			curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
+
+			// check if the highest bid on bybit is still higher than the lowest ask on osmo
+			if curAskPrice.GT(curBidPrice) {
+				break
+			}
+
 			// fill the max(osmoOrder level, bybitOrder level)
 			askAmount := osmomath.MustNewBigDecFromStr(curAsk.Quantity)
 			bidAmount := osmomath.MustNewBigDecFromStr((*curBid).GetSize())
 
 			// if ask's size is smaller than bid's size, fill the ask and move to the next ask, reduce bid's size accordingly
 			// simulates a real trade
-			if askAmount.LT(bidAmount) {
+			if askAmount.LTE(bidAmount) {
 				fillAmount.AddMut(askAmount)
 				(*curBid).SetSize(bidAmount.Sub(askAmount).String())
 				curAskIndex++
@@ -104,30 +115,35 @@ func (be *BybitExchange) calculateFillAmount(
 				curAsk.Quantity = askAmount.Sub(bidAmount).String()
 				curBidIndex++
 			}
-
-			curAsk = &osmoOrders[curAskIndex]
-			curBid = &bybitOrders[curBidIndex]
 		}
 
 	case "ask": // lowest ask on bybit < highest bid on osmo -> buy from bybit, sell on osmo
-		curAsk := &bybitOrders[curAskIndex]
-		curBid := &osmoOrders[curBidIndex]
+		var curAsk *osmocexfillertypes.OrderBasicI
+		var curBid *orderbookplugindomain.Order
 
-		curAskPrice := osmomath.MustNewBigDecFromStr((*curAsk).GetPrice())
-		curBidPrice, err := be.getUnscaledPriceForOrder(pair, *curBid)
-		if err != nil {
-			be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
-			return osmomath.NewBigDec(0), err
-		}
+		for curAskIndex < len(bybitOrders) && curBidIndex < len(osmoOrders) {
+			curAsk = &bybitOrders[curAskIndex]
+			curBid = &osmoOrders[curBidIndex]
 
-		for curAskPrice.LT(curBidPrice) {
+			curAskPrice := osmomath.MustNewBigDecFromStr((*curAsk).GetPrice())
+			curBidPrice, err := be.getUnscaledPriceForOrder(pair, *curBid)
+			if err != nil {
+				be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
+				return osmomath.NewBigDec(0), err
+			}
+
+			// check if the lowest ask on bybit is still lower than the highest bid on osmo
+			if curAskPrice.GT(curBidPrice) {
+				break
+			}
+
 			// fill the max(osmoOrder level, bybitOrder level)
 			askAmount := osmomath.MustNewBigDecFromStr((*curAsk).GetSize())
 			bidAmount := osmomath.MustNewBigDecFromStr(curBid.Quantity)
 
 			// if ask's size is smaller than bid's size, fill the ask and move to the next ask, reduce bid's size accordingly
 			// simulates a real trade
-			if askAmount.LT(bidAmount) {
+			if askAmount.LTE(bidAmount) {
 				fillAmount.AddMut(askAmount)
 				curBid.Quantity = bidAmount.Sub(askAmount).String()
 				curAskIndex++
@@ -136,9 +152,6 @@ func (be *BybitExchange) calculateFillAmount(
 				(*curAsk).SetSize(askAmount.Sub(bidAmount).String())
 				curBidIndex++
 			}
-
-			curAsk = &bybitOrders[curAskIndex]
-			curBid = &osmoOrders[curBidIndex]
 		}
 	default:
 		be.logger.Error("invalid order direction", zap.String("direction", bybitOrders[0].GetDirection()))
@@ -156,18 +169,14 @@ func (be *BybitExchange) calculateFillAmount(
 // adjPrice = price * 10^(baseDecimals-quoteDecimals)
 // bybit "unscales" the price that was set at the time of limit order creation due to difference in tokens' precisions
 func (be *BybitExchange) unscalePrice(price osmomath.BigDec, baseDenom, quoteDenom string) (osmomath.BigDec, error) {
-	baseMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(SymbolToChainDenom[baseDenom])
+	baseDecimals, err := be.getInterchainDenomDecimals(baseDenom)
 	if err != nil {
-		return osmomath.BigDec{}, err
+		return osmomath.NewBigDec(-1), err
 	}
-
-	quoteMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(SymbolToChainDenom[quoteDenom])
+	quoteDecimals, err := be.getInterchainDenomDecimals(quoteDenom)
 	if err != nil {
-		return osmomath.BigDec{}, err
+		return osmomath.NewBigDec(-1), err
 	}
-
-	baseDecimals := baseMetadata.Precision
-	quoteDecimals := quoteMetadata.Precision
 
 	power := baseDecimals - quoteDecimals
 	mul := true

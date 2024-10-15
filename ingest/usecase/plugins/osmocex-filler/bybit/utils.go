@@ -69,20 +69,16 @@ func (be *BybitExchange) updateBybitOrderbook(data wsbybit.V5WebsocketPublicOrde
 
 // adjustFillAmount adjusts fill amount based on available balances (effectively, sets it to min of three)
 // also returns final 1/fillAmount
-func (be *BybitExchange) adjustFillAmount(fillAmount, directBalance, inverseBalance osmomath.BigDec) (osmomath.BigDec, osmomath.BigDec) {
-	inverseFillAmount := osmomath.OneBigDec().Quo(fillAmount)
-
-	if directBalance.LT(fillAmount) {
-		fillAmount = directBalance
-		inverseFillAmount = osmomath.OneBigDec().Quo(fillAmount)
+func (be *BybitExchange) adjustFillAmount(fillAmount, balanceOne, balanceTwo osmomath.BigDec) osmomath.BigDec {
+	if balanceOne.LT(fillAmount) {
+		fillAmount = balanceOne
 	}
 
-	if inverseBalance.LT(inverseFillAmount) {
-		inverseFillAmount = inverseBalance
-		fillAmount = osmomath.OneBigDec().Quo(inverseFillAmount)
+	if balanceTwo.LT(fillAmount) {
+		fillAmount = balanceTwo
 	}
 
-	return fillAmount, inverseFillAmount
+	return fillAmount
 }
 
 func (be *BybitExchange) getOsmoOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
@@ -129,6 +125,17 @@ func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, 
 	}
 
 	return osmoHighestBidPrice, nil
+}
+
+// returns the precision of a token in the interchain ecosystem
+func (be *BybitExchange) getInterchainDenomDecimals(denom string) (int, error) {
+	denomMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(SymbolToChainDenom[denom])
+	if err != nil {
+		be.logger.Error("failed to get token metadata", zap.Error(err))
+		return 0, err
+	}
+
+	return denomMetadata.Precision, nil
 }
 
 type AccountInfo struct {

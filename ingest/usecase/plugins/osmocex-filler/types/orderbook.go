@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+
+	"github.com/osmosis-labs/osmosis/osmomath"
 )
 
 type OrderbookData struct {
@@ -96,6 +98,37 @@ func (o *OrderbookData) RemoveAsk(price string) {
 	defer o.mu.Unlock()
 
 	delete(o.asks, price)
+}
+
+// ScaleSize scales the sizes in the orderbook to the same precision as interchain denoms and returns a deep copy of the orderbook
+func (o *OrderbookData) ScaleSize(addedPrecision int) *OrderbookData {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	copiedOrderbook := &OrderbookData{
+		bids: make(map[string]string),
+		asks: make(map[string]string),
+	}
+
+	for price, size := range o.bids {
+		unscaled := osmomath.MustNewBigDecFromStr(size)
+		base := osmomath.NewBigDec(10)
+		multiplier := base.Power(osmomath.NewBigDec(int64(addedPrecision)))
+		scaled := unscaled.Mul(multiplier)
+
+		copiedOrderbook.bids[price] = scaled.String()
+	}
+
+	for price, size := range o.asks {
+		unscaled := osmomath.MustNewBigDecFromStr(size)
+		base := osmomath.NewBigDec(10)
+		multiplier := base.Power(osmomath.NewBigDec(int64(addedPrecision)))
+		scaled := unscaled.Mul(multiplier)
+
+		copiedOrderbook.asks[price] = scaled.String()
+	}
+
+	return copiedOrderbook
 }
 
 func (o *OrderbookData) BidsDescending() []OrderBasicI {

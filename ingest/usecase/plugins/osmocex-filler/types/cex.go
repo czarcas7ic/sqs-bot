@@ -36,7 +36,7 @@ const (
 // CoinBalanceI is an interface for a coin returned when querying exchange balance
 type CoinBalanceI interface {
 	Balance() string
-	BigDecBalance() osmomath.BigDec
+	BigDecBalance(precision int) osmomath.BigDec
 
 	Token() string
 }

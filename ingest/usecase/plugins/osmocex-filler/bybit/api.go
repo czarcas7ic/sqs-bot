@@ -40,8 +40,9 @@ func (c Coin) Balance() string {
 	return c.WalletBalance
 }
 
-func (c Coin) BigDecBalance() osmomath.BigDec {
-	return osmomath.MustNewBigDecFromStr(c.WalletBalance)
+func (c Coin) BigDecBalance(precision int) osmomath.BigDec {
+	unscaledBalance := osmomath.MustNewBigDecFromStr(c.WalletBalance)
+	return unscaledBalance.Mul(osmomath.NewBigDec(10).Power(osmomath.NewBigDec(int64(precision))))
 }
 
 func (be *BybitExchange) getBybitBalances() (map[string]osmocexfillertypes.CoinBalanceI, error) {

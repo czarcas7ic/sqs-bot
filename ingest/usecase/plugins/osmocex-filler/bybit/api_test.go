@@ -36,13 +36,10 @@ func Test(t *testing.T) {
 	// }
 
 	client := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"), bybit.WithBaseURL(bybit.MAINNET))
-	params := map[string]interface{}{"accountType": "UNIFIED"}
-	accountResult, err := client.NewUtaBybitServiceWithParams(params).GetAccountWallet(context.Background())
+	accountResult, err := client.NewPlaceOrderService("spot", "BTCUSDC", "Buy", "Market", "20").Do(context.Background())
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	result := accountResult.Result.(map[string]interface{})
-
-	fmt.Println(result)
+	fmt.Println(bybit.PrettyPrint(accountResult))
 }

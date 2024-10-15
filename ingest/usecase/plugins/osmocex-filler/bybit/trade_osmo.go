@@ -3,7 +3,6 @@ package bybit
 import (
 	"context"
 	"fmt"
-	"time"
 
 	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 	"github.com/cosmos/cosmos-sdk/client/tx"
@@ -35,34 +34,17 @@ var (
 
 // executes osmo trade
 // TODO: move somewhere else
-func (be *BybitExchange) tradeOsmosis(coinIn sdk.Coin, denomOut string, orderbookPoolId uint64) {
-	quote, err := (*be.osmoRouterUsecase).GetCustomDirectQuote(be.ctx, coinIn, denomOut, orderbookPoolId)
-	if err != nil {
-		be.logger.Error("failed to get direct quote", zap.Error(err))
-		return
-	}
-
-	splitRoute := quote.GetRoute()
-	if len(splitRoute) != 1 {
-		be.logger.Error("route should have 1 route")
-		return
-	}
-
-	route := splitRoute[0].GetPools()
-
-	poolManagerRoute := make([]poolmanagertypes.SwapAmountInRoute, len(route))
-	for i, r := range route {
-		poolManagerRoute[i] = poolmanagertypes.SwapAmountInRoute{
-			PoolId:        r.GetId(),
-			TokenOutDenom: r.GetTokenOutDenom(),
-		}
-	}
-
+func (be *BybitExchange) tradeOsmosis(coin sdk.Coin, denom string, orderbookPoolId uint64) {
 	swapMsg := &poolmanagertypes.MsgSwapExactAmountIn{
-		Sender:            (*be.osmoKeyring).GetAddress().String(),
-		Routes:            poolManagerRoute,
-		TokenIn:           coinIn,
-		TokenOutMinAmount: sdk.NewInt(0), // TODO: set this to a reasonable value
+		Sender: (*be.osmoKeyring).GetAddress().String(),
+		Routes: []poolmanagertypes.SwapAmountInRoute{
+			{
+				PoolId:        orderbookPoolId,
+				TokenOutDenom: denom,
+			},
+		},
+		TokenIn:           coin,
+		TokenOutMinAmount: sdk.NewInt(1), // TODO: set this to a reasonable value
 	}
 
 	_, adjustedGasUsed, err := be.simulateOsmoMsg(be.ctx, swapMsg)
@@ -77,7 +59,7 @@ func (be *BybitExchange) tradeOsmosis(coinIn sdk.Coin, denomOut string, orderboo
 		return
 	}
 
-	be.logger.Info("executed swap on OSMOSIS", zap.String("coinIn", coinIn.String()), zap.String("denomOut", denomOut))
+	be.logger.Info("executed swap on OSMOSIS", zap.String("coin", coin.String()), zap.String("denom", denom))
 }
 
 func (be *BybitExchange) executeOsmoMsg(msg sdk.Msg, adjustedGasUsed uint64) (*coretypes.ResultBroadcastTx, string, error) {
@@ -95,7 +77,7 @@ func (be *BybitExchange) executeOsmoMsg(msg sdk.Msg, adjustedGasUsed uint64) (*c
 		return nil, "", err
 	}
 
-	txBuilder.SetGasLimit(adjustedGasUsed)
+	txBuilder.SetGasLimit(adjustedGasUsed * 12 / 10)
 	txBuilder.SetFeeAmount(sdk.NewCoins(feecoin))
 	txBuilder.SetTimeoutHeight(0)
 
@@ -142,11 +124,6 @@ func (be *BybitExchange) executeOsmoMsg(msg sdk.Msg, adjustedGasUsed uint64) (*c
 		fmt.Println(err)
 		return nil, "", err
 	}
-
-	defer func() {
-		// Wait for block inclusion with buffer to avoid sequence mismatch
-		time.Sleep(5 * time.Second)
-	}()
 
 	resp, err := broadcastTransaction(be.ctx, txJSONBytes, RPC)
 	if err != nil {
