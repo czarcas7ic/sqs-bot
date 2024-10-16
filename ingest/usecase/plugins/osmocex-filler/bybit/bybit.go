@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/joho/godotenv"
@@ -133,7 +132,7 @@ func (be *BybitExchange) Signal(currentHeight uint64) {
 
 // RegisterPairs implements osmocexfillertypes.ExchangeI
 func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
-	for _, pair := range ArbPairs {
+	for _, pair := range pairs {
 		be.registeredPairs[pair] = struct{}{}
 		if err := be.subscribeOrderbook(pair, DEFAULT_DEPTH); err != nil {
 			return err
@@ -194,10 +193,8 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 	// if true -> bybit.highestBid > osmo.lowestAsk
 	// so, we need to buy from osmo and sell on bybit
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
-		defer time.Sleep(10 * time.Second) // wait for block inclusion with buffer to avoid sequence mismatch and same order processing
-
 		// scale bybit orderbook
-		basePrecision, err := be.getInterchainDenomDecimals(pair.Base)
+		basePrecision, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to get base precision", zap.Error(err))
 			return
@@ -221,11 +218,11 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 		}
 
 		// get balances in big dec
-		osmoBalanceQuoteBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(SymbolToChainDenom[pair.Quote]).BigInt())
+		osmoBalanceQuoteBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.QuoteInterchainDenom()).BigInt())
 		bybitBalanceBaseBigDec := bybitBalances[pair.Base].BigDecBalance(basePrecision)
 
 		// get final fill amount and reversed fill amount
-		fillAmount = be.adjustFillAmount(fillAmount, bybitBalanceBaseBigDec) // TODO: also make sure there is enough quote balance
+		fillAmount = be.adjustFillAmount(fillAmount, bybitBalanceBaseBigDec)
 		quoteFillAmount, err := be.reverseFillAmount(fillAmount, pair, osmocexfillertypes.OSMO)
 		if err != nil {
 			be.logger.Error("failed to reverse fill amount", zap.Error(err))
@@ -240,8 +237,8 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 		// fmt.Println("Quote Fill Amount: ", quoteFillAmount.String())
 
 		// fill ask on osmo (buy base on osmo)
-		coinIn := sdk.NewCoin(SymbolToChainDenom[pair.Quote], quoteFillAmount.Dec().TruncateInt())
-		go be.tradeOsmosis(coinIn, SymbolToChainDenom[pair.Base], osmoOrderbook.PoolID)
+		coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), quoteFillAmount.Dec().TruncateInt())
+		go be.tradeOsmosis(coinIn, pair.BaseInterchainDenom(), osmoOrderbook.PoolID)
 
 		// fill bid on bybit (sell on bybit)
 		go be.spot(pair, osmocexfillertypes.SELL, fillAmount)
@@ -256,16 +253,15 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 	// if true -> osmo.highestBid > bybit.lowestAsk
 	// so, we need to buy from bybit and sell on osmo
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
-		defer time.Sleep(10 * time.Second) // wait for block inclusion with buffer to avoid sequence mismatch and same order processing
-
 		// scale bybit orderbook
-		basePrecision, err := be.getInterchainDenomDecimals(pair.Base)
+		basePrecision, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to get base precision", zap.Error(err))
 			return
 		}
 
-		bybitOrderbook.ScaleSize(basePrecision)
+		// operate on a copy
+		bybitOrderbook := bybitOrderbook.ScaleSize(basePrecision)
 
 		// get total available fill amount
 		fillAmount, err := be.computeFillAmount(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
@@ -281,14 +277,14 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 			return
 		}
 
-		quotePrecision, err := be.getInterchainDenomDecimals(pair.Quote)
+		quotePrecision, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to get quote precision", zap.Error(err))
 			return
 		}
 
 		// get balances in big dec
-		osmoBalanceBaseBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(SymbolToChainDenom[pair.Base]).BigInt())
+		osmoBalanceBaseBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.BaseInterchainDenom()).BigInt())
 		bybitBalanceQuoteBigDec := bybitBalances[pair.Quote].BigDecBalance(quotePrecision)
 
 		// get final fill amount and reversed fill amount
@@ -329,12 +325,12 @@ func (be *BybitExchange) reverseFillAmount(fillAmount osmomath.BigDec, pair osmo
 	}
 
 	// fillAmount is computed in base tokens, scale it to precision of quote tokens
-	baseDecimals, err := be.getInterchainDenomDecimals(pair.Base)
+	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 	if err != nil {
 		return osmomath.NewBigDec(0), err
 	}
 
-	quoteDecimals, err := be.getInterchainDenomDecimals(pair.Quote)
+	quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
 	if err != nil {
 		return osmomath.NewBigDec(0), err
 	}
@@ -354,12 +350,12 @@ func (be *BybitExchange) reverseFillAmount(fillAmount osmomath.BigDec, pair osmo
 
 func (be *BybitExchange) getBasePriceInQuote(pair osmocexfillertypes.Pair, on osmocexfillertypes.ExchangeType) (osmomath.BigDec, error) {
 	if on == osmocexfillertypes.OSMO {
-		prices, err := (*be.osmoTokensUsecase).GetPrices(be.ctx, []string{SymbolToChainDenom[pair.Base]}, []string{SymbolToChainDenom[pair.Quote]}, domain.ChainPricingSourceType)
+		prices, err := (*be.osmoTokensUsecase).GetPrices(be.ctx, []string{pair.BaseInterchainDenom()}, []string{pair.QuoteInterchainDenom()}, domain.ChainPricingSourceType)
 		if err != nil {
 			return osmomath.NewBigDec(0), err
 		}
 
-		return prices.GetPriceForDenom(SymbolToChainDenom[pair.Base], SymbolToChainDenom[pair.Quote]), nil
+		return prices.GetPriceForDenom(pair.BaseInterchainDenom(), pair.QuoteInterchainDenom()), nil
 	} else {
 		// for bybit orderbooks, define a price as the price at which you can immediately sell (which is a highest bid)
 		orderbookAny, ok := be.orderbooks.Load(pair.String())

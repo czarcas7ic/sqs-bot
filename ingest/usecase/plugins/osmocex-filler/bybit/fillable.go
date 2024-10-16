@@ -192,12 +192,12 @@ func (be *BybitExchange) computeFillAmount(
 
 // adjPrice = price * 10^(baseDecimals-quoteDecimals)
 // bybit "unscales" the price that was set at the time of limit order creation due to difference in tokens' precisions
-func (be *BybitExchange) unscalePrice(price osmomath.BigDec, baseDenom, quoteDenom string) (osmomath.BigDec, error) {
-	baseDecimals, err := be.getInterchainDenomDecimals(baseDenom)
+func (be *BybitExchange) unscalePrice(pair osmocexfillertypes.Pair, price osmomath.BigDec) (osmomath.BigDec, error) {
+	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 	if err != nil {
 		return osmomath.NewBigDec(-1), err
 	}
-	quoteDecimals, err := be.getInterchainDenomDecimals(quoteDenom)
+	quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
 	if err != nil {
 		return osmomath.NewBigDec(-1), err
 	}

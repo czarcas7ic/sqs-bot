@@ -17,7 +17,7 @@ const (
 // spot executes a spot trade on bybit
 // quantity is in quote tokens for sells and in base tokens for buys
 func (be *BybitExchange) spot(pair osmocexfillertypes.Pair, _type osmocexfillertypes.TradeType, qty osmomath.BigDec) {
-	decimals, err := be.getInterchainDenomDecimals(pair.Quote)
+	decimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
 	if err != nil {
 		be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
 		return
@@ -26,7 +26,7 @@ func (be *BybitExchange) spot(pair osmocexfillertypes.Pair, _type osmocexfillert
 	side := "Buy"
 	if _type == osmocexfillertypes.SELL {
 		side = "Sell"
-		decimals, err = be.getInterchainDenomDecimals(pair.Base)
+		decimals, err = be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
 			return
@@ -41,7 +41,7 @@ func (be *BybitExchange) spot(pair osmocexfillertypes.Pair, _type osmocexfillert
 		return
 	}
 
-	quantityString := fmt.Sprintf("%f", quantityFloat) // convert to float because of bybit's api error of too many decimals
+	quantityString := fmt.Sprintf("%f", quantityFloat) // convert to float because of bybit's api error when too many decimals specified
 
 	order := be.httpclient.NewPlaceOrderService(DEFAULT_CATEGORY, pair.String(), side, DEFAULT_ORDER_TYPE, quantityString)
 	// fmt.Println("order params: ", DEFAULT_CATEGORY, pair.String(), side, DEFAULT_ORDER_TYPE, quantityString, qty.String())

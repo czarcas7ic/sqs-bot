@@ -78,8 +78,8 @@ func (be *BybitExchange) adjustFillAmount(fillAmount, balance osmomath.BigDec) o
 }
 
 func (be *BybitExchange) getOsmoOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
-	base := SymbolToChainDenom[pair.Base]
-	quote := SymbolToChainDenom[pair.Quote]
+	base := pair.BaseInterchainDenom()
+	quote := pair.QuoteInterchainDenom()
 
 	osmoPoolId, contractAddress, err := (*be.osmoPoolsUsecase).GetCanonicalOrderbookPool(base, quote)
 	if err != nil {
@@ -115,7 +115,7 @@ func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, 
 	}
 
 	// unscale osmoHighestBidPrice
-	osmoHighestBidPrice, err = be.unscalePrice(osmoHighestBidPrice, pair.Base, pair.Quote)
+	osmoHighestBidPrice, err = be.unscalePrice(pair, osmoHighestBidPrice)
 	if err != nil {
 		return osmomath.NewBigDec(-1), err
 	}
@@ -125,7 +125,7 @@ func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, 
 
 // returns the precision of a token in the interchain ecosystem
 func (be *BybitExchange) getInterchainDenomDecimals(denom string) (int, error) {
-	denomMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(SymbolToChainDenom[denom])
+	denomMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(denom)
 	if err != nil {
 		be.logger.Error("failed to get token metadata", zap.Error(err))
 		return 0, err
