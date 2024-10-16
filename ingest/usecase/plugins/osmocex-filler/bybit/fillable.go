@@ -2,6 +2,7 @@ package bybit
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
@@ -12,6 +13,16 @@ import (
 
 // checks if the highest bid on osmo is higher than the lowest ask on bybit
 func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAsks []osmocexfillertypes.OrderBasicI, osmoBids []orderbookplugindomain.Order) bool {
+	if len(bybitAsks) == 0 {
+		be.logger.Info("no asks found on bybit")
+		return false
+	}
+
+	if len(osmoBids) == 0 {
+		be.logger.Info("no bids found on osmo")
+		return false
+	}
+
 	osmoHighestBid := osmoBids[0]
 	bybitLowestAsk := bybitAsks[0]
 
@@ -38,6 +49,16 @@ func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAs
 
 // existsArbFromBybit checks if the highest bid on bybit is higher than the lowest ask on osmo
 func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitBids []osmocexfillertypes.OrderBasicI, osmoAsks []orderbookplugindomain.Order) bool {
+	if len(bybitBids) == 0 {
+		be.logger.Info("no bids found on bybit")
+		return false
+	}
+
+	if len(osmoAsks) == 0 {
+		be.logger.Info("no asks found on osmo")
+		return false
+	}
+
 	bybitHighestBid := bybitBids[0]
 	osmoLowestAsk := osmoAsks[0]
 
@@ -64,12 +85,13 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 // getFillAmountAndDirection operates on orders found profitable, calculates the amount of profitable fill and the exchange from which to buy
 // fillAmount refers to the amount of tokens that should be bought on asks side
 // fillAmount is calculated in base tokens
-func (be *BybitExchange) calculateFillAmount(
+func (be *BybitExchange) computeFillAmount(
 	pair osmocexfillertypes.Pair,
 	bybitOrders []osmocexfillertypes.OrderBasicI,
 	osmoOrders []orderbookplugindomain.Order,
 ) (fillAmount osmomath.BigDec, err error) {
 	if len(bybitOrders) == 0 || len(osmoOrders) == 0 {
+		// should not ever happen because lengths are checked upstream
 		return osmomath.NewBigDec(0), errors.New("empty orders")
 	}
 
@@ -94,6 +116,8 @@ func (be *BybitExchange) calculateFillAmount(
 			}
 
 			curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
+			fmt.Println("curAskPrice: ", curAskPrice, "curBidPrice: ", curBidPrice)
+			fmt.Println("curAskSize: ", (*curAsk).Quantity, "curBidSize: ", (*curBid).GetSize())
 
 			// check if the highest bid on bybit is still higher than the lowest ask on osmo
 			if curAskPrice.GT(curBidPrice) {

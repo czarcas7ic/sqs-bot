@@ -12,7 +12,7 @@ type ExchangeI interface {
 	RegisterPairs(ctx context.Context) error
 
 	// Signal starts the arb process at the beginning of each block
-	Signal()
+	Signal(currentHeight uint64)
 
 	// GetBotBalances returns the balances of the bot on exchange and on osmosis
 	GetBotBalances() (map[string]CoinBalanceI, sdk.Coins, error)

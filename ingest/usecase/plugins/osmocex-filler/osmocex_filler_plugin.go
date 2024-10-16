@@ -91,7 +91,7 @@ func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockH
 	defer oc.atomicBool.Store(false)
 
 	for _, cExchange := range oc.Exchanges {
-		cExchange.Signal()
+		cExchange.Signal(blockHeight)
 	}
 
 	return nil

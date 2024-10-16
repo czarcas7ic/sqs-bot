@@ -12,6 +12,7 @@ import (
 	bybit "github.com/wuhewuhe/bybit.go.api"
 )
 
+// NOTE: Running this test buys 40$ worth of BTC on bybit
 func Test(t *testing.T) {
 	// Get the path of the current file
 	_, currentFile, _, ok := runtime.Caller(0)
@@ -36,7 +37,7 @@ func Test(t *testing.T) {
 	// }
 
 	client := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"), bybit.WithBaseURL(bybit.MAINNET))
-	accountResult, err := client.NewPlaceOrderService("spot", "BTCUSDC", "Buy", "Market", "20").Do(context.Background())
+	accountResult, err := client.NewPlaceOrderService("spot", "BTCUSDC", "Buy", "Market", "40").Do(context.Background())
 	if err != nil {
 		fmt.Println(err)
 	}

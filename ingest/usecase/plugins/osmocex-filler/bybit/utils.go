@@ -69,13 +69,9 @@ func (be *BybitExchange) updateBybitOrderbook(data wsbybit.V5WebsocketPublicOrde
 
 // adjustFillAmount adjusts fill amount based on available balances (effectively, sets it to min of three)
 // also returns final 1/fillAmount
-func (be *BybitExchange) adjustFillAmount(fillAmount, balanceOne, balanceTwo osmomath.BigDec) osmomath.BigDec {
-	if balanceOne.LT(fillAmount) {
-		fillAmount = balanceOne
-	}
-
-	if balanceTwo.LT(fillAmount) {
-		fillAmount = balanceTwo
+func (be *BybitExchange) adjustFillAmount(fillAmount, balance osmomath.BigDec) osmomath.BigDec {
+	if balance.LT(fillAmount) {
+		fillAmount = balance
 	}
 
 	return fillAmount
