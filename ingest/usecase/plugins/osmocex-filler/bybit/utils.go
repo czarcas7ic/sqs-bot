@@ -123,6 +123,12 @@ func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, 
 	return osmoHighestBidPrice, nil
 }
 
+func addBigDecPrecision(bd *osmomath.BigDec, decimals int) {
+	base := osmomath.NewBigDec(10)
+	multiplier := base.Power(osmomath.NewBigDec(int64(decimals)))
+	bd.MulMut(multiplier)
+}
+
 // returns the precision of a token in the interchain ecosystem
 func (be *BybitExchange) getInterchainDenomDecimals(denom string) (int, error) {
 	denomMetadata, err := (*be.osmoTokensUsecase).GetMetadataByChainDenom(denom)

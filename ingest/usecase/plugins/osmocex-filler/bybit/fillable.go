@@ -2,7 +2,6 @@ package bybit
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
@@ -116,8 +115,8 @@ func (be *BybitExchange) computeFillAmount(
 			}
 
 			curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
-			fmt.Println("curAskPrice: ", curAskPrice, "curBidPrice: ", curBidPrice)
-			fmt.Println("curAskSize: ", (*curAsk).Quantity, "curBidSize: ", (*curBid).GetSize())
+			// fmt.Println("curAskPrice: ", curAskPrice, "curBidPrice: ", curBidPrice)
+			// fmt.Println("curAskSize: ", (*curAsk).Quantity, "curBidSize: ", (*curBid).GetSize())
 
 			// check if the highest bid on bybit is still higher than the lowest ask on osmo
 			if curAskPrice.GT(curBidPrice) {
@@ -192,6 +191,7 @@ func (be *BybitExchange) computeFillAmount(
 
 // adjPrice = price * 10^(baseDecimals-quoteDecimals)
 // bybit "unscales" the price that was set at the time of limit order creation due to difference in tokens' precisions
+// TODO: merge this function with the only caller
 func (be *BybitExchange) unscalePrice(pair osmocexfillertypes.Pair, price osmomath.BigDec) (osmomath.BigDec, error) {
 	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 	if err != nil {

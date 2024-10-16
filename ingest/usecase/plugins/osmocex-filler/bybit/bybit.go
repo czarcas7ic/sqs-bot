@@ -3,6 +3,7 @@ package bybit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,6 +27,9 @@ import (
 )
 
 type BybitExchange struct {
+	// arb config
+	*arbitrageConfig
+
 	ctx context.Context
 
 	// uses websocket for orderbook data processing for performance
@@ -60,19 +64,11 @@ const (
 	HTTP_URL                        = bybit.MAINNET
 	DEFAULT_DEPTH                   = 50 // default depth for an orderbook
 	DEFAULT_WAIT_BLOCKS_AFTER_TRADE = 10
+	USDC_INTERCHAIN                 = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"
 )
 
-func New(
-	ctx context.Context,
-	osmoPoolIdToOrders *sync.Map,
-	osmoPoolsUsecase *mvc.PoolsUsecase,
-	osmoTokensUsecase *mvc.TokensUsecase,
-	osmoRouterUsecase *mvc.RouterUsecase,
-	osmoKeyring *keyring.Keyring,
-	osmoPassthroughGRPCClient *passthroughdomain.PassthroughGRPCClient,
-	logger log.Logger,
-) *BybitExchange {
-	// Get the path of the current file
+func init() {
+	// Init environmental variables from .env file
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		panic("No caller information")
@@ -85,7 +81,18 @@ func New(
 	if err != nil {
 		panic(err)
 	}
+}
 
+func New(
+	ctx context.Context,
+	osmoPoolIdToOrders *sync.Map,
+	osmoPoolsUsecase *mvc.PoolsUsecase,
+	osmoTokensUsecase *mvc.TokensUsecase,
+	osmoRouterUsecase *mvc.RouterUsecase,
+	osmoKeyring *keyring.Keyring,
+	osmoPassthroughGRPCClient *passthroughdomain.PassthroughGRPCClient,
+	logger log.Logger,
+) *BybitExchange {
 	if os.Getenv("BYBIT_API_KEY") == "" || os.Getenv("BYBIT_API_SECRET") == "" {
 		panic("BYBIT_API_KEY or BYBIT_API_SECRET not set")
 	}
@@ -98,7 +105,7 @@ func New(
 
 	httpclient := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"), bybit.WithBaseURL(HTTP_URL))
 
-	return &BybitExchange{
+	be := &BybitExchange{
 		ctx:                       ctx,
 		wsclient:                  svc,
 		httpclient:                httpclient,
@@ -112,11 +119,16 @@ func New(
 		blockUntilHeight:          0,
 		logger:                    logger,
 	}
+
+	be.initConfig()
+
+	return be
 }
 
 // RegisterPairs implements osmocexfillertypes.ExchangeI
 func (be *BybitExchange) Signal(currentHeight uint64) {
 	if be.blockUntilHeight != 0 && currentHeight < be.blockUntilHeight {
+		be.logger.Info("arbitrage blocked until height", zap.Uint64("blockUntilHeight", be.blockUntilHeight))
 		return
 	}
 
@@ -143,6 +155,14 @@ func (be *BybitExchange) RegisterPairs(ctx context.Context) error {
 
 	return nil
 }
+
+/*
+{
+  "orders_by_tick": {
+    "tick_id": 23749165
+  }
+}
+*/
 
 func (be *BybitExchange) GetBotBalances() (map[string]osmocexfillertypes.CoinBalanceI, sdk.Coins, error) {
 	// get bybit balances
@@ -223,6 +243,13 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 
 		// get final fill amount and reversed fill amount
 		fillAmount = be.adjustFillAmount(fillAmount, bybitBalanceBaseBigDec)
+		fmt.Println("fillAmount: ", fillAmount)
+
+		if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmount) {
+			be.logger.Info("arbitrage from BYBIT found: insufficient fill value", zap.String("pair", pair.String()))
+			return
+		}
+
 		quoteFillAmount, err := be.reverseFillAmount(fillAmount, pair, osmocexfillertypes.OSMO)
 		if err != nil {
 			be.logger.Error("failed to reverse fill amount", zap.Error(err))
@@ -270,6 +297,12 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 			return
 		}
 
+		// check if fill amount is sufficient
+		if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmount) {
+			be.logger.Info("arbitrage from OSMOSIS found: insufficient fill value", zap.String("pair", pair.String()))
+			return
+		}
+
 		// get balances
 		bybitBalances, osmoBalances, err := be.GetBotBalances()
 		if err != nil {
@@ -310,6 +343,32 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 
 		return
 	}
+}
+
+// sufficientFillAmount checks if the fill amount is valued at least the amount in the arbitrage config (default 10$)
+// - interchainDenom must be in the interchain form
+func (be *BybitExchange) sufficientFillAmount(interchainDenom string, fillAmount osmomath.BigDec) bool {
+	if minFillAmount, ok := be.arbitrageConfig.getMinFillAmount(interchainDenom); ok {
+		fmt.Println("minFillAmount: ", minFillAmount)
+		return fillAmount.GTE(minFillAmount)
+	}
+
+	price, err := (*be.osmoTokensUsecase).GetPrices(be.ctx, []string{interchainDenom}, []string{USDC_INTERCHAIN}, domain.ChainPricingSourceType)
+	if err != nil {
+		be.logger.Error("failed to get price", zap.Error(err))
+		return false
+	}
+
+	decimals, err := be.getInterchainDenomDecimals(interchainDenom)
+	if err != nil {
+		be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
+		return false
+	}
+
+	minFillValue := osmomath.NewBigDec(MINIMUM_FILL_VALUE)
+	addBigDecPrecision(&minFillValue, decimals)
+
+	return fillAmount.Mul(price.GetPriceForDenom(interchainDenom, USDC_INTERCHAIN)).GTE(minFillValue)
 }
 
 // block prevents the exchange from searching for arbs until the blockUntilHeight is reached

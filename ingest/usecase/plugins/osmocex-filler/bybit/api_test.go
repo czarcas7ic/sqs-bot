@@ -32,10 +32,6 @@ func Test(t *testing.T) {
 		fmt.Println(currentDir+"/.env", os.Getenv("BYBIT_API_KEY") == "")
 	}
 
-	// if true { // prevent accidental trades
-	// 	panic("BYBIT_API_KEY or BYBIT_API_SECRET not set")
-	// }
-
 	client := bybit.NewBybitHttpClient(os.Getenv("BYBIT_API_KEY"), os.Getenv("BYBIT_API_SECRET"), bybit.WithBaseURL(bybit.MAINNET))
 	accountResult, err := client.NewPlaceOrderService("spot", "BTCUSDC", "Buy", "Market", "40").Do(context.Background())
 	if err != nil {
@@ -43,4 +39,12 @@ func Test(t *testing.T) {
 	}
 
 	fmt.Println(bybit.PrettyPrint(accountResult))
+
+	// params := map[string]interface{}{"category": "spot", "symbol": "BTCUSDC"}
+	// serverResult, err := client.NewUtaBybitServiceWithParams(params).GetInstrumentInfo(context.Background())
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
+	// fmt.Println(bybit.PrettyPrint(serverResult))
 }
