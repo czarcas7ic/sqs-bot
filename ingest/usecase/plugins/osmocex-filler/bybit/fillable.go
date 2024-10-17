@@ -84,19 +84,20 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 // getFillAmountAndDirection operates on orders found profitable, calculates the amount of profitable fill and the exchange from which to buy
 // fillAmount refers to the amount of tokens that should be bought on asks side
 // fillAmount is calculated in base tokens
-func (be *BybitExchange) computeFillAmount(
+func (be *BybitExchange) computeFillAmounts(
 	pair osmocexfillertypes.Pair,
 	bybitOrders []osmocexfillertypes.OrderBasicI,
 	osmoOrders []orderbookplugindomain.Order,
-) (fillAmount osmomath.BigDec, err error) {
+) (fillAmountBase osmomath.BigDec, fillAmountQuote osmomath.BigDec, err error) {
 	if len(bybitOrders) == 0 || len(osmoOrders) == 0 {
 		// should not ever happen because lengths are checked upstream
-		return osmomath.NewBigDec(0), errors.New("empty orders")
+		return osmomath.NewBigDec(0), osmomath.NewBigDec(0), errors.New("empty orders")
 	}
 
 	curAskIndex := 0
 	curBidIndex := 0
-	fillAmount = osmomath.NewBigDec(0)
+	fillAmountBase = osmomath.NewBigDec(0)
+	fillAmountQuote = osmomath.NewBigDec(0)
 
 	switch bybitOrders[0].GetDirection() {
 	case "bid": // highest bid on bybit > lowest ask on osmo -> buy from osmo, sell on bybit
@@ -111,7 +112,7 @@ func (be *BybitExchange) computeFillAmount(
 			curAskPrice, err := be.getUnscaledPriceForOrder(pair, *curAsk)
 			if err != nil {
 				be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
-				return osmomath.NewBigDec(0), err
+				return osmomath.NewBigDec(0), osmomath.NewBigDec(0), err
 			}
 
 			curBidPrice := osmomath.MustNewBigDecFromStr((*curBid).GetPrice())
@@ -130,11 +131,15 @@ func (be *BybitExchange) computeFillAmount(
 			// if ask's size is smaller than bid's size, fill the ask and move to the next ask, reduce bid's size accordingly
 			// simulates a real trade
 			if askAmount.LTE(bidAmount) {
-				fillAmount.AddMut(askAmount)
+				fillAmountBase.AddMut(askAmount)
+				fillAmountQuote.AddMut(askAmount.Mul(curAskPrice))
+
 				(*curBid).SetSize(bidAmount.Sub(askAmount).String())
 				curAskIndex++
 			} else {
-				fillAmount.AddMut(bidAmount)
+				fillAmountBase.AddMut(bidAmount)
+				fillAmountQuote.AddMut(bidAmount.Mul(curAskPrice))
+
 				curAsk.Quantity = askAmount.Sub(bidAmount).String()
 				curBidIndex++
 			}
@@ -152,7 +157,7 @@ func (be *BybitExchange) computeFillAmount(
 			curBidPrice, err := be.getUnscaledPriceForOrder(pair, *curBid)
 			if err != nil {
 				be.logger.Error("failed to get unscaled price for osmo order", zap.Error(err))
-				return osmomath.NewBigDec(0), err
+				return osmomath.NewBigDec(0), osmomath.NewBigDec(0), err
 			}
 
 			// check if the lowest ask on bybit is still lower than the highest bid on osmo
@@ -167,24 +172,41 @@ func (be *BybitExchange) computeFillAmount(
 			// if ask's size is smaller than bid's size, fill the ask and move to the next ask, reduce bid's size accordingly
 			// simulates a real trade
 			if askAmount.LTE(bidAmount) {
-				fillAmount.AddMut(askAmount)
+				fillAmountBase.AddMut(askAmount)
+				fillAmountQuote.AddMut(askAmount.Mul(curAskPrice))
 				curBid.Quantity = bidAmount.Sub(askAmount).String()
 				curAskIndex++
 			} else {
-				fillAmount.AddMut(bidAmount)
+				fillAmountBase.AddMut(bidAmount)
+				fillAmountQuote.AddMut(bidAmount.Mul(curAskPrice))
 				(*curAsk).SetSize(askAmount.Sub(bidAmount).String())
 				curBidIndex++
 			}
 		}
 	default:
 		be.logger.Error("invalid order direction", zap.String("direction", bybitOrders[0].GetDirection()))
-		return osmomath.NewBigDec(0), errors.New("invalid order direction")
+		return osmomath.NewBigDec(0), osmomath.NewBigDec(0), errors.New("invalid order direction")
 	}
 
-	if fillAmount.IsZero() {
+	if fillAmountBase.IsZero() {
 		be.logger.Info("no amount to fill")
-		return osmomath.NewBigDec(0), errors.New("no amount to fill")
+		return osmomath.NewBigDec(0), osmomath.NewBigDec(0), errors.New("no amount to fill")
 	}
+
+	// quote amount has extra baseDecimals-quoteDecimals precision, cut it
+	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
+	if err != nil {
+		be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
+		return osmomath.NewBigDec(0), osmomath.NewBigDec(0), err
+	}
+
+	quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
+	if err != nil {
+		be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
+		return osmomath.NewBigDec(0), osmomath.NewBigDec(0), err
+	}
+
+	removeBigDecDecimals(&fillAmountQuote, baseDecimals-quoteDecimals)
 
 	return
 }

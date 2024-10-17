@@ -69,8 +69,8 @@ func (be *BybitExchange) initConfig() {
 						be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
 						panic(err)
 					}
-					
-					addBigDecPrecision(&minQty, baseDecimals)
+
+					addBigDecDecimals(&minQty, baseDecimals)
 
 					minFillAmounts[pair.BaseInterchainDenom()] = minQty
 					continue

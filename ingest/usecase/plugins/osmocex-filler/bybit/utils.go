@@ -123,10 +123,20 @@ func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, 
 	return osmoHighestBidPrice, nil
 }
 
-func addBigDecPrecision(bd *osmomath.BigDec, decimals int) {
+// adds decimals extra decimals to a bigdec
+// (10.201, 2) -> 1020.1
+func addBigDecDecimals(bd *osmomath.BigDec, decimals int) {
 	base := osmomath.NewBigDec(10)
 	multiplier := base.Power(osmomath.NewBigDec(int64(decimals)))
 	bd.MulMut(multiplier)
+}
+
+// removes decimals from a bigdec
+// (1020.1, 2) -> 10.201
+func removeBigDecDecimals(bd *osmomath.BigDec, decimals int) {
+	base := osmomath.NewBigDec(10)
+	divisor := base.Power(osmomath.NewBigDec(int64(decimals)))
+	bd.QuoMut(divisor)
 }
 
 // returns the precision of a token in the interchain ecosystem
