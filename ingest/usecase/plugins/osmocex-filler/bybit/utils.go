@@ -133,10 +133,21 @@ func addBigDecDecimals(bd *osmomath.BigDec, decimals int) {
 
 // removes decimals from a bigdec
 // (1020.1, 2) -> 10.201
-func removeBigDecDecimals(bd *osmomath.BigDec, decimals int) {
+// func removeBigDecDecimals(bd *osmomath.BigDec, decimals int) {
+// 	base := osmomath.NewBigDec(10)
+// 	divisor := base.Power(osmomath.NewBigDec(int64(decimals)))
+// 	bd.QuoMut(divisor)
+// }
+
+func scaleBigDecDecimals(bd *osmomath.BigDec, decimals int) {
 	base := osmomath.NewBigDec(10)
-	divisor := base.Power(osmomath.NewBigDec(int64(decimals)))
-	bd.QuoMut(divisor)
+	if decimals < 0 {
+		divisor := base.Power(osmomath.NewBigDec(int64(-decimals)))
+		bd.QuoMut(divisor)
+	} else {
+		multiplier := base.Power(osmomath.NewBigDec(int64(decimals)))
+		bd.MulMut(multiplier)
+	}
 }
 
 // returns the precision of a token in the interchain ecosystem

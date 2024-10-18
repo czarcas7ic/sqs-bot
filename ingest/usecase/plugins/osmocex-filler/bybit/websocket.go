@@ -15,15 +15,13 @@ func (be *BybitExchange) subscribeOrderbook(pair osmocexfillertypes.Pair, depth 
 			Symbol: wsbybit.SymbolV5(pair.String()),
 		},
 		// These callbacks are ran sequentially.
-		func(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
-			return be.acknowledgeResponse(resp)
-		},
+		be.websocketProcessor,
 	)
 
 	return err
 }
 
-func (be *BybitExchange) acknowledgeResponse(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
+func (be *BybitExchange) websocketProcessor(resp wsbybit.V5WebsocketPublicOrderBookResponse) error {
 	switch resp.Type {
 	case "snapshot": // first response, construct initial orderbook
 		orderbook := parseBybitOrderbook(resp.Data)

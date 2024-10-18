@@ -12,8 +12,8 @@ type OrderbookData struct {
 	mu sync.Mutex
 
 	Symbol string
-	bids   map[string]string // Price: Size
-	asks   map[string]string // Price: Size
+	bids   map[string]string // Price: Size (in quote denoms)
+	asks   map[string]string // Price: Size (in base denoms)
 }
 
 func NewOrderbookData(symbol string, bids, asks map[string]string) *OrderbookData {
@@ -38,6 +38,7 @@ func (o *OrderbookData) Bids() []OrderBasicI {
 			Size:      size,
 		})
 	}
+
 	return bids
 }
 
@@ -101,7 +102,7 @@ func (o *OrderbookData) RemoveAsk(price string) {
 }
 
 // ScaleSize scales the sizes in the orderbook to the same precision as interchain denoms and returns a deep copy of the orderbook
-func (o *OrderbookData) ScaleSize(addedPrecision int) *OrderbookData {
+func (o *OrderbookData) ScaleSize(baseAddedPrecision, quoteAddedPrecision int) *OrderbookData {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -113,7 +114,7 @@ func (o *OrderbookData) ScaleSize(addedPrecision int) *OrderbookData {
 	for price, size := range o.bids {
 		unscaled := osmomath.MustNewBigDecFromStr(size)
 		base := osmomath.NewBigDec(10)
-		multiplier := base.Power(osmomath.NewBigDec(int64(addedPrecision)))
+		multiplier := base.Power(osmomath.NewBigDec(int64(quoteAddedPrecision)))
 		scaled := unscaled.Mul(multiplier)
 
 		copiedOrderbook.bids[price] = scaled.String()
@@ -122,7 +123,7 @@ func (o *OrderbookData) ScaleSize(addedPrecision int) *OrderbookData {
 	for price, size := range o.asks {
 		unscaled := osmomath.MustNewBigDecFromStr(size)
 		base := osmomath.NewBigDec(10)
-		multiplier := base.Power(osmomath.NewBigDec(int64(addedPrecision)))
+		multiplier := base.Power(osmomath.NewBigDec(int64(baseAddedPrecision)))
 		scaled := unscaled.Mul(multiplier)
 
 		copiedOrderbook.asks[price] = scaled.String()
@@ -171,6 +172,54 @@ func (o *OrderbookData) AsksAscending() []OrderBasicI {
 		return priceI < priceJ
 	})
 	return asks
+}
+
+/*
+	Default response for an order for each exchange is:
+
+	Osmosis Order:
+	- Bid: Size - Quote, Price - Scaled Quote for Base (ex: 60k for BTC/USDC)
+	- Ask: Size - Base, Price - Scaled Quote for Base (ex: 60k for BTC/USDC)
+
+	Bybit Order:
+	- Bid: Size - Base, Price - Quote for Base (ex: 60k for BTC/USDC)
+	- Ask: Size - Base, Price - Quote for Base (ex: 60k for BTC/USDC)
+
+	QuoteBids() sets bids' sizes in quote denoms for compatibility with osmosis's orderbook
+
+	Final comparison:
+
+	Osmosis Order:
+	- Bid: Size - Quote, Price - Scaled Quote for Base (ex: 60k for BTC/USDC)
+	- Ask: Size - Base, Price - Scaled Quote for Base (ex: 60k for BTC/USDC)
+
+	Bybit Order:
+	- Bid: Size - Quote, Price - Quote for Base (ex: 60k for BTC/USDC)
+	- Ask: Size - Base, Price - Quote for Base (ex: 60k for BTC/USDC)
+*/
+// QuoteBids sets sizes of bids in quote denoms (by default, the sizes are in bid denoms)
+func (o *OrderbookData) QuoteBids() *OrderbookData {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	copyBids := make(map[string]string)
+	for price, size := range o.bids {
+		baseSize := osmomath.MustNewBigDecFromStr(size)
+		bidSize := baseSize.Mul(osmomath.MustNewBigDecFromStr(price))
+
+		copyBids[price] = bidSize.String()
+	}
+
+	copyAsks := make(map[string]string)
+	for price, size := range o.asks {
+		copyAsks[price] = size
+	}
+
+	return &OrderbookData{
+		Symbol: o.Symbol,
+		bids:   copyBids,
+		asks:   copyAsks,
+	}
 }
 
 type OrderbookEntry struct {

@@ -2,7 +2,6 @@ package bybit
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -193,6 +192,9 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 		return
 	}
 
+	// this is a hack to solve the issue described in QuoteBids docs
+	bybitOrderbook = bybitOrderbook.QuoteBids()
+
 	osmoOrderbook, err := be.getOsmoOrderbookForPair(pair)
 	if err != nil {
 		be.logger.Error("failed to get OSMOSIS orderbook for pair", zap.String("pair", pair.String()), zap.Error(err))
@@ -213,21 +215,30 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 	// so, we need to buy from osmo and sell on bybit
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
 		// scale bybit orderbook
-		basePrecision, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
+		baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to get base precision", zap.Error(err))
 			return
 		}
 
+		quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
+		if err != nil {
+			be.logger.Error("failed to get quote precision", zap.Error(err))
+			return
+		}
+
 		// operate on a copy of an orderbook
-		bybitOrderbook := bybitOrderbook.ScaleSize(basePrecision)
+		bybitOrderbook := bybitOrderbook.ScaleSize(baseDecimals, quoteDecimals)
 
 		// get total available fill amount
-		fillAmountBase, fillAmountQuote, err := be.computeFillAmounts(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
+		fillAmountBase, fillAmountQuote, err := be.computeFillAmountsSkewed(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
 		if err != nil {
 			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
 			return
 		}
+
+		// see WARN in computeFillAmounts
+		scaleBigDecDecimals(&fillAmountQuote, quoteDecimals-baseDecimals)
 
 		// get balances (do not move outside of for loop)
 		bybitBalances, osmoBalances, err := be.GetBotBalances()
@@ -238,23 +249,16 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 
 		// get balances in big dec
 		osmoBalanceQuoteBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.QuoteInterchainDenom()).BigInt())
-		bybitBalanceBaseBigDec := bybitBalances[pair.Base].BigDecBalance(basePrecision)
+		bybitBalanceBaseBigDec := bybitBalances[pair.Base].BigDecBalance(baseDecimals)
 
 		// get final fill amount and reversed fill amount
 		fillAmountBase = be.adjustFillAmount(fillAmountBase, bybitBalanceBaseBigDec)
 		fillAmountQuote = be.adjustFillAmount(fillAmountQuote, osmoBalanceQuoteBigDec)
-		fmt.Println("fillAmountBase: ", fillAmountBase)
-		fmt.Println("fillAmountQuote: ", fillAmountQuote)
 
 		if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmountBase) {
 			be.logger.Info("arbitrage from BYBIT found: insufficient fill value", zap.String("pair", pair.String()))
 			return
 		}
-
-		// fmt.Println("Bybit Balance BTC: ", bybitBalanceBaseBigDec.String())
-		// fmt.Println("Osmo Balance USDC: ", osmoBalanceQuoteBigDec.String())
-		// fmt.Println("Computed Fill Amount: ", fillAmount.String())
-		// fmt.Println("Quote Fill Amount: ", quoteFillAmount.String())
 
 		// fill ask on osmo (buy base on osmo)
 		coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), fillAmountQuote.Dec().TruncateInt())
@@ -274,21 +278,30 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 	// so, we need to buy from bybit and sell on osmo
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
 		// scale bybit orderbook
-		basePrecision, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
+		baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to get base precision", zap.Error(err))
 			return
 		}
 
+		quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
+		if err != nil {
+			be.logger.Error("failed to get quote precision", zap.Error(err))
+			return
+		}
+
 		// operate on a copy
-		bybitOrderbook := bybitOrderbook.ScaleSize(basePrecision)
+		bybitOrderbook := bybitOrderbook.ScaleSize(baseDecimals, quoteDecimals)
 
 		// get total available fill amount
-		fillAmountBase, fillAmountQuote, err := be.computeFillAmounts(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
+		fillAmountBase, fillAmountQuote, err := be.computeFillAmountsSkewed(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
 		if err != nil {
 			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
 			return
 		}
+
+		// see WARN in computeFillAmounts
+		scaleBigDecDecimals(&fillAmountBase, baseDecimals-quoteDecimals)
 
 		// get balances
 		bybitBalances, osmoBalances, err := be.GetBotBalances()
@@ -297,15 +310,9 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 			return
 		}
 
-		quotePrecision, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
-		if err != nil {
-			be.logger.Error("failed to get quote precision", zap.Error(err))
-			return
-		}
-
 		// get balances in big dec
 		osmoBalanceBaseBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.BaseInterchainDenom()).BigInt())
-		bybitBalanceQuoteBigDec := bybitBalances[pair.Quote].BigDecBalance(quotePrecision)
+		bybitBalanceQuoteBigDec := bybitBalances[pair.Quote].BigDecBalance(quoteDecimals)
 
 		// get final fill amount and reversed fill amount
 		fillAmountBase = be.adjustFillAmount(fillAmountBase, osmoBalanceBaseBigDec)
