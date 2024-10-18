@@ -210,133 +210,168 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, currentHeight
 
 	osmoOrders := osmoOrdersAny.(orderbookplugindomain.OrdersResponse)
 
+	var executedFromBybit, executedFromOsmo bool
+
 	// check arb from bybit exchange to osmo
 	// if true -> bybit.highestBid > osmo.lowestAsk
 	// so, we need to buy from osmo and sell on bybit
 	if be.existsArbFromBybit(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending()) {
-		// scale bybit orderbook
-		baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
-		if err != nil {
-			be.logger.Error("failed to get base precision", zap.Error(err))
-			return
-		}
-
-		quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
-		if err != nil {
-			be.logger.Error("failed to get quote precision", zap.Error(err))
-			return
-		}
-
-		// operate on a copy of an orderbook
-		bybitOrderbook := bybitOrderbook.ScaleSize(baseDecimals, quoteDecimals)
-
-		// get total available fill amount
-		fillAmountBase, fillAmountQuote, err := be.computeFillAmountsSkewed(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
-		if err != nil {
-			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
-			return
-		}
-
-		// see WARN in computeFillAmounts
-		scaleBigDecDecimals(&fillAmountQuote, quoteDecimals-baseDecimals)
-
-		// get balances (do not move outside of for loop)
-		bybitBalances, osmoBalances, err := be.GetBotBalances()
-		if err != nil {
-			be.logger.Error("failed to get bot balances", zap.Error(err))
-			return
-		}
-
-		// get balances in big dec
-		osmoBalanceQuoteBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.QuoteInterchainDenom()).BigInt())
-		bybitBalanceBaseBigDec := bybitBalances[pair.Base].BigDecBalance(baseDecimals)
-
-		// get final fill amount and reversed fill amount
-		fillAmountBase = be.adjustFillAmount(fillAmountBase, bybitBalanceBaseBigDec)
-		fillAmountQuote = be.adjustFillAmount(fillAmountQuote, osmoBalanceQuoteBigDec)
-
-		if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmountBase) {
-			be.logger.Info("arbitrage from BYBIT found: insufficient fill value", zap.String("pair", pair.String()))
-			return
-		}
-
-		// fill ask on osmo (buy base on osmo)
-		coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), fillAmountQuote.Dec().TruncateInt())
-		go be.tradeOsmosis(coinIn, pair.BaseInterchainDenom(), osmoOrderbook.PoolID)
-
-		// fill bid on bybit (sell on bybit)
-		go be.spot(pair, osmocexfillertypes.SELL, fillAmountBase)
-
-		be.logger.Info("arbitrage from BYBIT: executed", zap.String("pair", pair.String()))
-
-		be.block(currentHeight)
-
-		return
+		executedFromBybit = be.processArbitrageFromBybit(pair, bybitOrderbook, osmoOrders, osmoOrderbook.PoolID)
 	}
 
 	// if true -> osmo.highestBid > bybit.lowestAsk
 	// so, we need to buy from bybit and sell on osmo
 	if be.existsArbFromOsmo(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending()) {
-		// scale bybit orderbook
-		baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
-		if err != nil {
-			be.logger.Error("failed to get base precision", zap.Error(err))
-			return
-		}
-
-		quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
-		if err != nil {
-			be.logger.Error("failed to get quote precision", zap.Error(err))
-			return
-		}
-
-		// operate on a copy
-		bybitOrderbook := bybitOrderbook.ScaleSize(baseDecimals, quoteDecimals)
-
-		// get total available fill amount
-		fillAmountBase, fillAmountQuote, err := be.computeFillAmountsSkewed(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
-		if err != nil {
-			be.logger.Error("failed to get fill amount and direction", zap.Error(err))
-			return
-		}
-
-		// see WARN in computeFillAmounts
-		scaleBigDecDecimals(&fillAmountBase, baseDecimals-quoteDecimals)
-
-		// get balances
-		bybitBalances, osmoBalances, err := be.GetBotBalances()
-		if err != nil {
-			be.logger.Error("failed to get bot balances", zap.Error(err))
-			return
-		}
-
-		// get balances in big dec
-		osmoBalanceBaseBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.BaseInterchainDenom()).BigInt())
-		bybitBalanceQuoteBigDec := bybitBalances[pair.Quote].BigDecBalance(quoteDecimals)
-
-		// get final fill amount and reversed fill amount
-		fillAmountBase = be.adjustFillAmount(fillAmountBase, osmoBalanceBaseBigDec)
-		fillAmountQuote = be.adjustFillAmount(fillAmountQuote, bybitBalanceQuoteBigDec)
-
-		// check if fill amount is sufficient
-		if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmountBase) {
-			be.logger.Info("arbitrage from OSMOSIS found: insufficient fill value", zap.String("pair", pair.String()))
-			return
-		}
-
-		// fill bid on osmo (sell base on osmo)
-		coinIn := sdk.NewCoin(pair.Base, fillAmountBase.Dec().TruncateInt())
-		go be.tradeOsmosis(coinIn, pair.Quote, osmoOrderbook.PoolID)
-
-		// fill ask on bybit (buy base on bybit)
-		go be.spot(pair, osmocexfillertypes.BUY, fillAmountQuote)
-
-		be.logger.Info("arbitrage from OSMOSIS: executed", zap.String("pair", pair.String()))
-
-		be.block(currentHeight)
-
-		return
+		executedFromOsmo = be.processArbitrageFromOsmo(pair, bybitOrderbook, osmoOrders, osmoOrderbook.PoolID)
 	}
+
+	if executedFromBybit || executedFromOsmo {
+		be.block(currentHeight)
+	}
+}
+
+func (be *BybitExchange) processArbitrageFromOsmo(pair osmocexfillertypes.Pair, bybitOrderbook *osmocexfillertypes.OrderbookData, osmoOrders orderbookplugindomain.OrdersResponse, osmoOrderbookPoolId uint64) bool {
+	// scale bybit orderbook
+	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
+	if err != nil {
+		be.logger.Error("failed to get base precision", zap.Error(err))
+		return false
+	}
+
+	quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
+	if err != nil {
+		be.logger.Error("failed to get quote precision", zap.Error(err))
+		return false
+	}
+
+	// operate on a copy
+	bybitOrderbook = bybitOrderbook.ScaleSize(baseDecimals, quoteDecimals)
+
+	// get total available fill amount
+	fillAmountBase, fillAmountQuote, err := be.computeFillAmountsSkewed(pair, bybitOrderbook.AsksAscending(), osmoOrders.BidsDescending())
+	if err != nil {
+		be.logger.Error("failed to get fill amount and direction", zap.Error(err))
+		return false
+	}
+
+	// see WARN in computeFillAmountsSkewed
+	scaleBigDecDecimals(&fillAmountBase, baseDecimals-quoteDecimals)
+
+	// get balances
+	bybitBalances, osmoBalances, err := be.GetBotBalances()
+	if err != nil {
+		be.logger.Error("failed to get bot balances", zap.Error(err))
+		return false
+	}
+
+	// get balances in big dec
+	osmoBalanceBaseBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.BaseInterchainDenom()).BigInt())
+	bybitBalanceQuoteBigDec := bybitBalances[pair.Quote].BigDecBalance(quoteDecimals)
+
+	// get final fill amount and reversed fill amount
+	fillAmountBase = be.adjustFillAmount(fillAmountBase, osmoBalanceBaseBigDec)
+	fillAmountQuote = be.adjustFillAmount(fillAmountQuote, bybitBalanceQuoteBigDec)
+
+	// check if fill amount is sufficient
+	if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmountBase) {
+		be.logger.Info("arbitrage from OSMOSIS found: insufficient fill value", zap.String("pair", pair.String()))
+		return false
+	}
+
+	// fill bid on osmo (sell base on osmo)
+	coinIn := sdk.NewCoin(pair.BaseInterchainDenom(), fillAmountBase.Dec().TruncateInt())
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	// perform osmosis trade
+	go func(coinIn sdk.Coin, quoteInterchainDenom string, osmoOrderbookPoolId uint64) {
+		defer wg.Done()
+		be.tradeOsmosis(coinIn, quoteInterchainDenom, osmoOrderbookPoolId)
+	}(coinIn, pair.QuoteInterchainDenom(), osmoOrderbookPoolId)
+
+	// fill ask on bybit (buy base on bybit)
+	go func(pair osmocexfillertypes.Pair, fillAmountQuote osmomath.BigDec) {
+		defer wg.Done()
+		be.spot(pair, osmocexfillertypes.BUY, fillAmountQuote)
+	}(pair, fillAmountQuote)
+
+	wg.Wait()
+
+	be.logger.Info("arbitrage from OSMOSIS: executed", zap.String("pair", pair.String()))
+
+	return true
+}
+
+func (be *BybitExchange) processArbitrageFromBybit(pair osmocexfillertypes.Pair, bybitOrderbook *osmocexfillertypes.OrderbookData, osmoOrders orderbookplugindomain.OrdersResponse, osmoOrderbookPoolId uint64) bool {
+	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
+	if err != nil {
+		be.logger.Error("failed to get base precision", zap.Error(err))
+		return false
+	}
+
+	quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
+	if err != nil {
+		be.logger.Error("failed to get quote precision", zap.Error(err))
+		return false
+	}
+
+	// operate on a copy of an orderbook
+	bybitOrderbook = bybitOrderbook.ScaleSize(baseDecimals, quoteDecimals)
+
+	// get total available fill amount
+	fillAmountBase, fillAmountQuote, err := be.computeFillAmountsSkewed(pair, bybitOrderbook.BidsDescending(), osmoOrders.AsksAscending())
+	if err != nil {
+		be.logger.Error("failed to get fill amount and direction", zap.Error(err))
+		return false
+	}
+
+	// see WARN in computeFillAmountsSkewed
+	scaleBigDecDecimals(&fillAmountQuote, quoteDecimals-baseDecimals)
+
+	// get balances (do not move outside of for loop)
+	bybitBalances, osmoBalances, err := be.GetBotBalances()
+	if err != nil {
+		be.logger.Error("failed to get bot balances", zap.Error(err))
+		return false
+	}
+
+	// get balances in big dec
+	osmoBalanceQuoteBigDec := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.QuoteInterchainDenom()).BigInt())
+	bybitBalanceBaseBigDec := bybitBalances[pair.Base].BigDecBalance(baseDecimals)
+
+	// get final fill amount and reversed fill amount
+	fillAmountBase = be.adjustFillAmount(fillAmountBase, bybitBalanceBaseBigDec)
+	fillAmountQuote = be.adjustFillAmount(fillAmountQuote, osmoBalanceQuoteBigDec)
+
+	if !be.sufficientFillAmount(pair.BaseInterchainDenom(), fillAmountBase) {
+		be.logger.Info("arbitrage from BYBIT found: insufficient fill value", zap.String("pair", pair.String()))
+		return false
+	}
+
+	// fill ask on osmo (buy base on osmo)
+	coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), fillAmountQuote.Dec().TruncateInt())
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	// trade on osmosis
+	go func(coinIn sdk.Coin, baseInterchainDenom string, osmoOrderbookPoolId uint64) {
+		defer wg.Done()
+		be.tradeOsmosis(coinIn, baseInterchainDenom, osmoOrderbookPoolId)
+	}(coinIn, pair.BaseInterchainDenom(), osmoOrderbookPoolId)
+
+	// fill bid on bybit (sell on bybit)
+	go func(pair osmocexfillertypes.Pair, fillAmountBase osmomath.BigDec) {
+		defer wg.Done()
+		be.spot(pair, osmocexfillertypes.SELL, fillAmountBase)
+	}(pair, fillAmountBase)
+
+	wg.Wait()
+
+	be.logger.Info("arbitrage from BYBIT: executed", zap.String("pair", pair.String()))
+
+	return true
 }
 
 // sufficientFillAmount checks if the fill amount is valued at least the amount in the arbitrage config (default 10$)
