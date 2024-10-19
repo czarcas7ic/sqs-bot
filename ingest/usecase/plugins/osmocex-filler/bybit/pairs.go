@@ -5,7 +5,7 @@ import osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/os
 var (
 	pairs = []osmocexfillertypes.Pair{
 		{Base: "BTC", Quote: "USDC"},
-		// {Base: "ETH", Quote: "USDC"},
-		// {Base: "ATOM", Quote: "USDC"},
+		{Base: "ETH", Quote: "USDC"},
+		{Base: "ATOM", Quote: "USDC"},
 	}
 )

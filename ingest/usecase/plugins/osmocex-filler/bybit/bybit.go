@@ -2,7 +2,6 @@ package bybit
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -65,7 +64,7 @@ var _ osmocexfillertypes.ExchangeI = (*BybitExchange)(nil)
 const (
 	HTTP_URL                        = bybit.MAINNET
 	DEFAULT_DEPTH                   = 50 // default depth for an orderbook
-	DEFAULT_WAIT_BLOCKS_AFTER_TRADE = 2  // TODO: it takes a while for a plugin to update the orderbook state. Why?? look into it
+	DEFAULT_WAIT_BLOCKS_AFTER_TRADE = 5  // TODO: it takes a while for a plugin to update the orderbook state. Why?? look into it
 	USDC_INTERCHAIN                 = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"
 )
 
@@ -356,9 +355,6 @@ func (be *BybitExchange) processArbitrageFromOsmo(
 		be.logger.Info("arbitrage from OSMOSIS found: insufficient fill value", zap.String("pair", pair.String()))
 		return false
 	}
-
-	fmt.Println("fillAmountBase: ", fillAmountBase.String())
-	fmt.Println("fillAmountQuote: ", fillAmountQuote.String())
 
 	// fill bid on osmo (sell base on osmo)
 	coinIn := sdk.NewCoin(pair.BaseInterchainDenom(), fillAmountBase.Dec().TruncateInt())
