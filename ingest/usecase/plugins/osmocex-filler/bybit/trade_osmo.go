@@ -15,6 +15,7 @@ import (
 	"github.com/cosmos/ibc-go/v7/testing/simapp"
 	"github.com/osmosis-labs/osmosis/osmomath"
 	poolmanagertypes "github.com/osmosis-labs/osmosis/v25/x/poolmanager/types"
+	"github.com/osmosis-labs/sqs/domain"
 	"go.uber.org/zap"
 )
 
@@ -34,12 +35,12 @@ var (
 
 // executes osmo trade
 // TODO: move somewhere else
-func (be *BybitExchange) tradeOsmosis(coin sdk.Coin, denom string, orderbookPoolId uint64) {
+func (be *BybitExchange) tradeOsmosis(coin sdk.Coin, denom string, orderbook domain.CanonicalOrderBooksResult) {
 	swapMsg := &poolmanagertypes.MsgSwapExactAmountIn{
 		Sender: (*be.osmoKeyring).GetAddress().String(),
 		Routes: []poolmanagertypes.SwapAmountInRoute{
 			{
-				PoolId:        orderbookPoolId,
+				PoolId:        orderbook.PoolID,
 				TokenOutDenom: denom,
 			},
 		},
@@ -47,22 +48,30 @@ func (be *BybitExchange) tradeOsmosis(coin sdk.Coin, denom string, orderbookPool
 		TokenOutMinAmount: sdk.NewInt(1), // TODO: set this to a reasonable value
 	}
 
-	_, adjustedGasUsed, err := be.simulateOsmoMsg(be.ctx, swapMsg)
+	batchClaimMsg, err := be.batchClaimMsg(orderbook.ContractAddress)
+	if err != nil {
+		be.logger.Error("failed to create batch claim msg", zap.Error(err))
+		return
+	}
+
+	msgs := []sdk.Msg{swapMsg, batchClaimMsg}
+
+	_, adjustedGasUsed, err := be.simulateOsmoMsgs(be.ctx, msgs)
 	if err != nil {
 		be.logger.Error("failed to simulate osmo msg", zap.Error(err))
 		return
 	}
 
-	_, _, err = be.executeOsmoMsg(swapMsg, adjustedGasUsed)
+	_, _, err = be.executeOsmoMsgs(msgs, adjustedGasUsed)
 	if err != nil {
 		be.logger.Error("failed to execute osmo msg", zap.Error(err))
 		return
 	}
 
-	be.logger.Info("executed swap on OSMOSIS", zap.String("coin", coin.String()), zap.String("denom", denom))
+	be.logger.Info("executed transaction on OSMOSIS", zap.String("coin", coin.String()), zap.String("denom", denom))
 }
 
-func (be *BybitExchange) executeOsmoMsg(msg sdk.Msg, adjustedGasUsed uint64) (*coretypes.ResultBroadcastTx, string, error) {
+func (be *BybitExchange) executeOsmoMsgs(msgs []sdk.Msg, adjustedGasUsed uint64) (*coretypes.ResultBroadcastTx, string, error) {
 	key := (*be.osmoKeyring).GetKey()
 	keyBytes := key.Bytes()
 
@@ -72,12 +81,12 @@ func (be *BybitExchange) executeOsmoMsg(msg sdk.Msg, adjustedGasUsed uint64) (*c
 	txFeeUosmo := defaultGasPrice.Dec().Mul(osmomath.NewIntFromUint64(adjustedGasUsed).ToLegacyDec()).Ceil().TruncateInt()
 	feecoin := sdk.NewCoin(Denom, txFeeUosmo)
 
-	err := txBuilder.SetMsgs(msg)
+	err := txBuilder.SetMsgs(msgs...)
 	if err != nil {
 		return nil, "", err
 	}
 
-	txBuilder.SetGasLimit(adjustedGasUsed * 12 / 10)
+	txBuilder.SetGasLimit(adjustedGasUsed)
 	txBuilder.SetFeeAmount(sdk.NewCoins(feecoin))
 	txBuilder.SetTimeoutHeight(0)
 
@@ -139,7 +148,7 @@ func (be *BybitExchange) executeOsmoMsg(msg sdk.Msg, adjustedGasUsed uint64) (*c
 	return resp, string(txJSONBytes), nil
 }
 
-func (be *BybitExchange) simulateOsmoMsg(ctx context.Context, msg sdk.Msg) (*txtypes.SimulateResponse, uint64, error) {
+func (be *BybitExchange) simulateOsmoMsgs(ctx context.Context, msgs []sdk.Msg) (*txtypes.SimulateResponse, uint64, error) {
 	accSeq, accNum := getInitialSequence(ctx, (*be.osmoKeyring).GetAddress().String())
 
 	txFactory := tx.Factory{}
@@ -150,7 +159,7 @@ func (be *BybitExchange) simulateOsmoMsg(ctx context.Context, msg sdk.Msg) (*txt
 	txFactory = txFactory.WithGasAdjustment(1.02)
 
 	// Estimate transaction
-	gasResult, adjustedGasUsed, err := CalculateGas(ctx, (*be.osmoPassthroughGRPCClient).GetChainGRPCClient(), txFactory, msg)
+	gasResult, adjustedGasUsed, err := CalculateGas(ctx, (*be.osmoPassthroughGRPCClient).GetChainGRPCClient(), txFactory, msgs...)
 	if err != nil {
 		return nil, adjustedGasUsed, err
 	}

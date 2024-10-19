@@ -155,6 +155,12 @@ func (be *BybitExchange) computeFillAmountsSkewed(
 				curAsk.Quantity = askAmount.Sub(levelAmountBase).String()
 				curBidIndex++
 			}
+
+			// add a claim in case this order fills
+			be.addClaim(possibleClaim{
+				TickId:  curAsk.TickId,
+				OrderID: curAsk.OrderId,
+			})
 		}
 
 		// // quote amount has base's precision, so we need to adjust it
@@ -205,6 +211,12 @@ func (be *BybitExchange) computeFillAmountsSkewed(
 				(*curAsk).SetSize(askAmount.Sub(levelAmountBase).String())
 				curBidIndex++
 			}
+
+			// add a claim in case this order fills
+			be.addClaim(possibleClaim{
+				TickId:  curBid.TickId,
+				OrderID: curBid.OrderId,
+			})
 		}
 
 	default:

@@ -44,7 +44,7 @@ func (be *BybitExchange) spot(pair osmocexfillertypes.Pair, _type osmocexfillert
 	quantityString := fmt.Sprintf("%f", quantityFloat) // convert to float because of bybit's api error when too many decimals specified
 
 	order := be.httpclient.NewPlaceOrderService(DEFAULT_CATEGORY, pair.String(), side, DEFAULT_ORDER_TYPE, quantityString)
-	fmt.Println("order params: ", DEFAULT_CATEGORY, pair.String(), side, DEFAULT_ORDER_TYPE, quantityString, qty.String())
+	// fmt.Println("order params: ", DEFAULT_CATEGORY, pair.String(), side, DEFAULT_ORDER_TYPE, quantityString, qty.String())
 	result, err := order.Do(be.ctx)
 	if err != nil {
 		be.logger.Error("failed to place spot order", zap.Error(err))

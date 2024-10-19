@@ -2,6 +2,7 @@ package bybit_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 
 	wsbybit "github.com/hirokisan/bybit/v2"
 	"github.com/joho/godotenv"
-	clmath "github.com/osmosis-labs/osmosis/v25/x/concentrated-liquidity/math"
 	bybit "github.com/wuhewuhe/bybit.go.api"
 )
 
@@ -83,5 +83,23 @@ func TestWebsocket(t *testing.T) {
 }
 
 func TestAny(t *testing.T) {
-	fmt.Println(clmath.TickToSqrtPrice(22377938)) // 143
+
+	type batchClaim struct {
+		Orders [][]int `json:"orders"` // [[tickId, orderId], [tickId, orderId], ...]
+	}
+
+	type batchClaimRequest struct {
+		batchClaim `json:"batch_claim"`
+	}
+
+	orders := [][]int{{1, 2}, {3, 4}}
+
+	bc := batchClaim{
+		Orders: orders,
+	}
+
+	req := batchClaimRequest{batchClaim: bc}
+
+	bz, _ := json.Marshal(req)
+	fmt.Println(string(bz))
 }
