@@ -279,6 +279,8 @@ func (be *BybitExchange) processArbitrageFromBybit(
 		return false
 	}
 
+	be.logger.Debug("filling amounts", zap.String("pair", pair.String()), zap.String("base", fillAmountBase.String()), zap.String("quote", fillAmountQuote.String()))
+
 	// fill ask on osmo (buy base on osmo)
 	coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), fillAmountQuote.Dec().TruncateInt())
 
@@ -355,6 +357,8 @@ func (be *BybitExchange) processArbitrageFromOsmo(
 		be.logger.Info("arbitrage from OSMOSIS found: insufficient fill value", zap.String("pair", pair.String()))
 		return false
 	}
+
+	be.logger.Debug("filling amounts", zap.String("pair", pair.String()), zap.String("base", fillAmountBase.String()), zap.String("quote", fillAmountQuote.String()))
 
 	// fill bid on osmo (sell base on osmo)
 	coinIn := sdk.NewCoin(pair.BaseInterchainDenom(), fillAmountBase.Dec().TruncateInt())
