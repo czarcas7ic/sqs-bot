@@ -6,6 +6,7 @@ var (
 	pairs = []osmocexfillertypes.Pair{
 		{Base: "BTC", Quote: "USDC"},
 		{Base: "ETH", Quote: "USDC"},
-		{Base: "ATOM", Quote: "USDC"},
+		// {Base: "ATOM", Quote: "USDC"},
+		// {Base: "OSMO", Quote: "USDT"}, // perp contract
 	}
 )

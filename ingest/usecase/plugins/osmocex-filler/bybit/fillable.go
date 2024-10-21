@@ -10,6 +10,10 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	bps = osmomath.NewBigDec(10000)
+)
+
 // checks if the highest bid on osmo is higher than the lowest ask on bybit
 func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAsks []osmocexfillertypes.OrderBasicI, osmoBids []orderbookplugindomain.Order) bool {
 	if len(bybitAsks) == 0 {
@@ -38,6 +42,14 @@ func (be *BybitExchange) existsArbFromOsmo(pair osmocexfillertypes.Pair, bybitAs
 	if !osmoHighestBidPrice.GT(bybitLowestAskPrice) {
 		// no arb found
 		be.logger.Info("arbitrage from OSMOSIS not found", zap.String("pair", pair.String()), zap.String("highest bid", osmoHighestBidPrice.String()), zap.String("lowest ask", bybitLowestAskPrice.String()))
+		return false
+	}
+
+	// check that the deviation is at least the minimum
+	fraction := osmomath.OneBigDec().Sub(osmoHighestBidPrice.Quo(bybitLowestAskPrice)) // (1 - ask/bid)
+	bpsDeviation := fraction.Mul(bps)                                                  // basis points
+	if bpsDeviation.LT(DEFAULT_MINIMUM_PRICE_DEVIATION_BPS) {
+		be.logger.Info("arbitrage from OSMOSIS not found: deviation too low", zap.String("pair", pair.String()), zap.String("highest bid", osmoHighestBidPrice.String()), zap.String("lowest ask", bybitLowestAskPrice.String()), zap.String("deviation", bpsDeviation.String()))
 		return false
 	}
 
@@ -74,6 +86,14 @@ func (be *BybitExchange) existsArbFromBybit(pair osmocexfillertypes.Pair, bybitB
 	if !bybitHighestBidPrice.GT(osmoLowestAskPrice) {
 		// no arb found
 		be.logger.Info("arbitrage from BYBIT not found", zap.String("pair", pair.String()), zap.String("highest bid", bybitHighestBidPrice.String()), zap.String("lowest ask", osmoLowestAskPrice.String()))
+		return false
+	}
+
+	// check that the deviation is at least the minimum
+	fraction := osmomath.OneBigDec().Sub(osmoLowestAskPrice.Quo(bybitHighestBidPrice)) // (1 - ask/bid)
+	bpsDeviation := fraction.Mul(bps)                                                  // basis points
+	if bpsDeviation.LT(DEFAULT_MINIMUM_PRICE_DEVIATION_BPS) {
+		be.logger.Info("arbitrage from BYBIT not found: deviation too low", zap.String("pair", pair.String()), zap.String("highest bid", bybitHighestBidPrice.String()), zap.String("lowest ask", osmoLowestAskPrice.String()), zap.String("deviation", bpsDeviation.String()))
 		return false
 	}
 

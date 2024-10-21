@@ -9,28 +9,18 @@ import (
 )
 
 const (
-	MINIMUM_FILL_VALUE          = 10
-	MINIMUM_PRICE_DEVIATION_BPS = 1 // 0.01%
+	MINIMUM_FILL_VALUE = 10
 )
 
-// custom min amounts
-// https://www.bybit.com/en/announcement-info/spot-trading-rules/
-// var (
-// 	minBTCAmount = osmomath.MustNewBigDecFromStr("19800") // 15k satoshis
-// )
-
-// var (
-// 	// TODO: make human-readable
-// 	customMinFillAmounts = map[string]osmomath.BigDec{
-// 		"factory/osmo1z6r6qdknhgsc0zeracktgpcxf43j6sekq07nw8sxduc9lg0qjjlqfu25e3/alloyed/allBTC": minBTCAmount, // allBTC -> 15k satoshis minimum for bybit api
-// 	}
-// )
+var (
+	DEFAULT_MINIMUM_PRICE_DEVIATION_BPS = osmomath.NewBigDec(80) // 0.80%
+)
 
 type arbitrageConfig struct {
 	// minFillAmounts is a map from a pair of tokens to the minimum fill amount in base tokens
 	minFillAmounts map[string]osmomath.BigDec
-	// minimumPriceDeviation is the minimum price deviation (in basis points) between the two exchanges for the bot to proceed with the trade
-	minimumPriceDeviationBPS int
+	// denomToDecimals is a map from a token to the number of decimals bybit's api expects (maximum)
+	denomToDecimals map[string]int
 }
 
 func (ac *arbitrageConfig) getMinFillAmount(denom string) (osmomath.BigDec, bool) {
@@ -48,6 +38,7 @@ func (be *BybitExchange) initConfig() {
 	}
 
 	minFillAmounts := make(map[string]osmomath.BigDec)
+	denomToDecimals := make(map[string]int)
 	for _, pair := range pairs {
 		params := map[string]interface{}{"category": "spot", "symbol": pair.String()}
 		serverResult, err := be.httpclient.NewUtaBybitServiceWithParams(params).GetInstrumentInfo(context.Background())
@@ -60,9 +51,12 @@ func (be *BybitExchange) initConfig() {
 		if result["list"] != nil {
 			list := result["list"].([]interface{})
 			if len(list) != 0 {
-				base := list[0].(map[string]interface{})
-				if base["lotSizeFilter"] != nil {
-					lotSizeFilter := base["lotSizeFilter"].(map[string]interface{})
+				listdata := list[0].(map[string]interface{})
+				if listdata["lotSizeFilter"] != nil {
+					// set min fill amount
+					lotSizeFilter := listdata["lotSizeFilter"].(map[string]interface{})
+
+					// for base
 					minQty := osmomath.MustNewBigDecFromStr(lotSizeFilter["minOrderQty"].(string))
 					baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())
 					if err != nil {
@@ -72,7 +66,33 @@ func (be *BybitExchange) initConfig() {
 
 					addBigDecDecimals(&minQty, baseDecimals)
 
+					// for quote
+					minAmt := osmomath.MustNewBigDecFromStr(lotSizeFilter["minOrderAmt"].(string))
+					quoteDecimals, err := be.getInterchainDenomDecimals(pair.QuoteInterchainDenom())
+					if err != nil {
+						be.logger.Error("failed to get interchain denom decimals", zap.Error(err))
+						panic(err)
+					}
+
+					addBigDecDecimals(&minAmt, quoteDecimals)
+
 					minFillAmounts[pair.BaseInterchainDenom()] = minQty
+					minFillAmounts[pair.QuoteInterchainDenom()] = minAmt
+
+					// set decimals
+
+					// for base token
+					basePrecisionField := osmomath.MustNewBigDecFromStr(lotSizeFilter["basePrecision"].(string)) // ex: 0.00001
+					basePrecisionFieldInverse := osmomath.NewBigDec(1).Quo(basePrecisionField)                   // ex: 100000
+					bDecimals := len(basePrecisionFieldInverse.String()) - 1 - osmomath.BigDecPrecision - 1      // ex: len(100000) - 1 = 5
+
+					quotePrecisionField := osmomath.MustNewBigDecFromStr(lotSizeFilter["quotePrecision"].(string)) // ex: 0.0000001
+					quotePrecisionFieldInverse := osmomath.NewBigDec(1).Quo(quotePrecisionField)                   // ex: 10000000.(36 zeros)
+					qDecimals := len(quotePrecisionFieldInverse.String()) - 1 - osmomath.BigDecPrecision - 1       // -2 for "1" and "." // ex: len(10000000) - 1 = 7
+
+					denomToDecimals[pair.Base] = bDecimals
+					denomToDecimals[pair.Quote] = qDecimals
+
 					continue
 				}
 			}
@@ -82,7 +102,7 @@ func (be *BybitExchange) initConfig() {
 	}
 
 	be.arbitrageConfig = &arbitrageConfig{
-		minFillAmounts:           minFillAmounts,
-		minimumPriceDeviationBPS: MINIMUM_PRICE_DEVIATION_BPS,
+		minFillAmounts:  minFillAmounts,
+		denomToDecimals: denomToDecimals,
 	}
 }

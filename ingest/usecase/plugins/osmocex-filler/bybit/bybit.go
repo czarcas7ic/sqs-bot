@@ -409,6 +409,7 @@ func (be *BybitExchange) sufficientFillAmount(interchainDenom string, fillAmount
 // block prevents the exchange from searching for arbs until the blockUntilHeight is reached
 func (be *BybitExchange) block(currentHeight uint64) {
 	be.blockUntilHeight = currentHeight + DEFAULT_WAIT_BLOCKS_AFTER_TRADE
+	be.logger.Info("BLOCKED until", zap.Uint64("blockUntilHeight", be.blockUntilHeight))
 }
 
 func (be *BybitExchange) registeredPairsSize() int { return len(be.registeredPairs) }
