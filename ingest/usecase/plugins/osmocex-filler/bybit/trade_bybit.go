@@ -14,11 +14,11 @@ const (
 
 // spot executes a spot trade on bybit
 // quantity is in quote tokens for sells and in base tokens for buys
-func (be *BybitExchange) spot(pair osmocexfillertypes.Pair, _type osmocexfillertypes.TradeType, qty osmomath.BigDec) {
+func (be *BybitExchange) spot(pair osmocexfillertypes.Pair, _type TradeType, qty osmomath.BigDec) {
 	side := "Buy"
 	denomInterchain := pair.QuoteInterchainDenom()
 	denomHuman := pair.Quote
-	if _type == osmocexfillertypes.SELL {
+	if _type == SELL {
 		side = "Sell"
 		denomInterchain = pair.BaseInterchainDenom()
 		denomHuman = pair.Base

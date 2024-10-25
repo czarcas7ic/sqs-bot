@@ -31,44 +31,67 @@ var (
 	encodingConfig = simapp.MakeTestEncodingConfig()
 
 	defaultGasPrice = osmomath.MustNewBigDecFromStr("0.1")
+
+	// (1 - slippageTolerance) * 100
+	// slippage = 0.1% tolerance
+	valueFraction = osmomath.MustNewBigDecFromStr("99.9").Dec()
 )
 
-// executes osmo trade
+// simulates osmo trade. Returns expected amount out and gas used
 // TODO: move somewhere else
-func (be *BybitExchange) tradeOsmosis(coin sdk.Coin, denom string, orderbook domain.CanonicalOrderBooksResult) {
-	swapMsg := &poolmanagertypes.MsgSwapExactAmountIn{
-		Sender: (*be.osmoKeyring).GetAddress().String(),
-		Routes: []poolmanagertypes.SwapAmountInRoute{
-			{
-				PoolId:        orderbook.PoolID,
-				TokenOutDenom: denom,
-			},
-		},
-		TokenIn:           coin,
-		TokenOutMinAmount: sdk.NewInt(1), // TODO: set this to a reasonable value
-	}
-
-	batchClaimMsg, err := be.batchClaimMsg(orderbook.ContractAddress)
+func (be *BybitExchange) simulateOsmoTrade(coin sdk.Coin, denom string) (func(), osmomath.BigDec, uint64, error) {
+	quote, err := (*be.osmoRouterUsecase).GetSimpleQuote(be.ctx, coin, denom, domain.WithDisableSplitRoutes())
 	if err != nil {
-		be.logger.Error("failed to create batch claim msg", zap.Error(err))
-		return
+		be.logger.Error("failed to get simple quote", zap.Error(err))
+		return nil, osmomath.ZeroBigDec(), 0, err
 	}
 
-	msgs := []sdk.Msg{swapMsg, batchClaimMsg}
+	// (*be.osmoRouterUsecase).GetOptimalQuoteInGivenOut(be.ctx, coin)
+
+	amountOutExpected := quote.GetAmountOut().Mul(valueFraction.TruncateInt())
+	amountOutExpectedBigDec := osmomath.NewBigDecFromBigInt(amountOutExpected.BigInt())
+
+	splitRoute := quote.GetRoute()
+	if len(splitRoute) != 1 { // disabled splits
+		be.logger.Error("route should have 1 route")
+		return nil, osmomath.ZeroBigDec(), 0, fmt.Errorf("route should have 1 route")
+	}
+
+	route := splitRoute[0].GetPools()
+	poolmanagerRoute := make([]poolmanagertypes.SwapAmountInRoute, 0, len(route))
+	for _, pool := range route {
+		poolmanagerRoute = append(poolmanagerRoute, poolmanagertypes.SwapAmountInRoute{
+			PoolId:        pool.GetId(),
+			TokenOutDenom: pool.GetTokenOutDenom(),
+		})
+	}
+
+	swapMsg := &poolmanagertypes.MsgSwapExactAmountIn{
+		Sender:            (*be.osmoKeyring).GetAddress().String(),
+		Routes:            poolmanagerRoute,
+		TokenIn:           coin,
+		TokenOutMinAmount: amountOutExpected,
+	}
+
+	msgs := []sdk.Msg{swapMsg}
 
 	_, adjustedGasUsed, err := be.simulateOsmoMsgs(be.ctx, msgs)
 	if err != nil {
 		be.logger.Error("failed to simulate osmo msg", zap.Error(err))
-		return
+		return nil, osmomath.ZeroBigDec(), 0, err
 	}
 
-	_, _, err = be.executeOsmoMsgs(msgs, adjustedGasUsed)
-	if err != nil {
-		be.logger.Error("failed to execute osmo msg", zap.Error(err))
-		return
+	// function to perform this trade upstream
+	tradeFunction := func() {
+		localAdjustedGasUsed := adjustedGasUsed
+		_, _, err := be.executeOsmoMsgs(msgs, localAdjustedGasUsed)
+		if err != nil {
+			be.logger.Error("failed to execute osmo msg", zap.Error(err))
+			return
+		}
 	}
 
-	be.logger.Info("executed transaction on OSMOSIS", zap.String("coin", coin.String()), zap.String("denom", denom))
+	return tradeFunction, amountOutExpectedBigDec, adjustedGasUsed, nil
 }
 
 func (be *BybitExchange) executeOsmoMsgs(msgs []sdk.Msg, adjustedGasUsed uint64) (*coretypes.ResultBroadcastTx, string, error) {

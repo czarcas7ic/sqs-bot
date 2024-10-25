@@ -16,9 +16,6 @@ import (
 	tmtypes "github.com/cometbft/cometbft/types"
 	wsbybit "github.com/hirokisan/bybit/v2"
 	"github.com/osmosis-labs/osmosis/osmomath"
-	clmath "github.com/osmosis-labs/osmosis/v25/x/concentrated-liquidity/math"
-	"github.com/osmosis-labs/sqs/domain"
-	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
 	osmocexfillertypes "github.com/osmosis-labs/sqs/ingest/usecase/plugins/osmocex-filler/types"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
@@ -77,24 +74,6 @@ func (be *BybitExchange) adjustFillAmount(fillAmount, balance osmomath.BigDec) o
 	return fillAmount
 }
 
-func (be *BybitExchange) getOsmoOrderbookForPair(pair osmocexfillertypes.Pair) (domain.CanonicalOrderBooksResult, error) {
-	base := pair.BaseInterchainDenom()
-	quote := pair.QuoteInterchainDenom()
-
-	osmoPoolId, contractAddress, err := (*be.osmoPoolsUsecase).GetCanonicalOrderbookPool(base, quote)
-	if err != nil {
-		be.logger.Error("failed to get canonical orderbook pool", zap.Error(err))
-		return domain.CanonicalOrderBooksResult{}, err
-	}
-
-	return domain.CanonicalOrderBooksResult{
-		Base:            pair.Base,
-		Quote:           pair.Quote,
-		PoolID:          osmoPoolId,
-		ContractAddress: contractAddress,
-	}, nil
-}
-
 func (be *BybitExchange) getBybitOrderbookForPair(pair osmocexfillertypes.Pair) (*osmocexfillertypes.OrderbookData, error) {
 	orderbookAny, ok := be.orderbooks.Load(pair.String())
 	if !ok {
@@ -105,22 +84,6 @@ func (be *BybitExchange) getBybitOrderbookForPair(pair osmocexfillertypes.Pair) 
 	orderbook := orderbookAny.(*osmocexfillertypes.OrderbookData)
 
 	return orderbook, nil
-}
-
-func (be *BybitExchange) getUnscaledPriceForOrder(pair osmocexfillertypes.Pair, order orderbookplugindomain.Order) (osmomath.BigDec, error) {
-	// get osmo highest bid price from tick
-	osmoHighestBidPrice, err := clmath.TickToPrice(order.TickId)
-	if err != nil {
-		return osmomath.NewBigDec(-1), err
-	}
-
-	// unscale osmoHighestBidPrice
-	osmoHighestBidPrice, err = be.unscalePrice(pair, osmoHighestBidPrice)
-	if err != nil {
-		return osmomath.NewBigDec(-1), err
-	}
-
-	return osmoHighestBidPrice, nil
 }
 
 // adds decimals extra decimals to a bigdec

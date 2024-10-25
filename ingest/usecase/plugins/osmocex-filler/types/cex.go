@@ -18,20 +18,28 @@ type ExchangeI interface {
 	GetBotBalances() (map[string]CoinBalanceI, sdk.Coins, error)
 }
 
+const (
+	ASK = iota
+	BID
+)
+
+type Orders []OrderBasicI
+
+func (o Orders) Direction() int {
+	if len(o) == 0 {
+		return -1
+	}
+
+	return o[0].GetDirection()
+}
+
 type OrderBasicI interface {
 	GetPrice() string
 	GetSize() string
-	GetDirection() string
+	GetDirection() int
 
 	SetSize(string)
 }
-
-type ExchangeType int
-
-const (
-	OSMO ExchangeType = iota
-	BYBIT
-)
 
 // CoinBalanceI is an interface for a coin returned when querying exchange balance
 type CoinBalanceI interface {
