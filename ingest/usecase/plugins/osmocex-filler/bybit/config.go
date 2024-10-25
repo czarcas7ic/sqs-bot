@@ -13,7 +13,7 @@ const (
 )
 
 var (
-	DEFAULT_MINIMUM_PRICE_DEVIATION_BPS = osmomath.NewBigDec(80) // 0.80%
+	DEFAULT_MINIMUM_PRICE_DEVIATION_BPS = osmomath.NewBigDec(60) // 0.60%
 )
 
 type arbitrageConfig struct {
