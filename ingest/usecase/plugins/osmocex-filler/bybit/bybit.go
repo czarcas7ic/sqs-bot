@@ -66,6 +66,43 @@ const (
 	UOSMO                           = "uosmo"
 )
 
+type (
+	priceLevelStopFunction   = func(priceLevel string, threshold osmomath.BigDec) bool
+	orderAccumulatorFunction = func(size, price string) osmomath.BigDec
+)
+
+var (
+	_ priceLevelStopFunction = stopFunctionAsks
+	_ priceLevelStopFunction = stopFunctionBids
+
+	_ orderAccumulatorFunction = orderAccumQuote
+	_ orderAccumulatorFunction = orderAccumBase
+)
+
+var (
+	// we want to stop when we find a price level that is greater than or equal to the threshold
+	stopFunctionAsks = func(priceLevel string, threshold osmomath.BigDec) bool {
+		priceLevelBigDec := osmomath.MustNewBigDecFromStr(priceLevel)
+		return priceLevelBigDec.GTE(threshold)
+	}
+
+	// we want to stop when we find a price level that is less than or equal to the threshold
+	stopFunctionBids = func(priceLevel string, threshold osmomath.BigDec) bool {
+		priceLevelBigDec := osmomath.MustNewBigDecFromStr(priceLevel)
+		return priceLevelBigDec.LTE(threshold)
+	}
+
+	orderAccumQuote = func(size, _ string) osmomath.BigDec {
+		return osmomath.MustNewBigDecFromStr(size)
+	}
+
+	orderAccumBase = func(size, price string) osmomath.BigDec {
+		sizeBigDec := osmomath.MustNewBigDecFromStr(size)
+		priceBigDec := osmomath.MustNewBigDecFromStr(price)
+		return sizeBigDec.Quo(priceBigDec)
+	}
+)
+
 func init() {
 	// Init environmental variables from .env file
 	_, currentFile, _, ok := runtime.Caller(0)
@@ -135,8 +172,8 @@ func (be *BybitExchange) Signal(currentHeight uint64) {
 	newBlockWg := sync.WaitGroup{}
 	newBlockWg.Add(be.registeredPairsSize())
 
-	var baseTokens osmocexfillertypes.Set[string]
-	var quoteTokens osmocexfillertypes.Set[string]
+	baseTokens := osmocexfillertypes.NewSet[string]()
+	quoteTokens := osmocexfillertypes.NewSet[string]()
 
 	for pair := range be.registeredPairs {
 		baseTokens.Add(pair.BaseInterchainDenom())
@@ -225,41 +262,59 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, osmoPrices do
 	}
 
 	buyOnOsmo := be.existsArbitrageOpportunity(bybitOrderbook.BidsDescending(), osmoPrice, baseDecimals, quoteDecimals)
+	fmt.Println("buyOnOsmo: ", buyOnOsmo)
 	if buyOnOsmo != nil {
+		fillAmountQuote := buyOnOsmo.FillAmountQuote
+		fillAmountBase := buyOnOsmo.FillAmountBase
+
 		// first, check that fill amount is at least the minimum amount
-		minFill, ok := be.getMinFillAmount(pair.QuoteInterchainDenom())
+		minFill, ok := be.getMinFillAmount(pair.BaseInterchainDenom())
 		if !ok {
 			be.logger.Error("failed to get min fill amount", zap.Error(err))
 			return
 		}
 
-		if buyOnOsmo.SellAmount.LT(minFill) {
-			be.logger.Info("sell amount is less than min fill amount", zap.String("pair", pair.String()), zap.String("sellAmount", buyOnOsmo.SellAmount.String()), zap.String("minFill", minFill.String()))
+		if fillAmountBase.LT(minFill) {
+			be.logger.Info("sell amount is less than min fill amount", zap.String("pair", pair.String()), zap.String("FillAmountBase", buyOnOsmo.FillAmountBase.String()), zap.String("minFill", minFill.String()))
 			return
 		}
 
-		// check that we have enough balance to perform the trade
-		quoteBalanceDec := osmomath.NewDecFromInt(osmoBalances.AmountOf(pair.QuoteInterchainDenom()))
-		quoteBalance := osmomath.NewBigDecFromBigInt(quoteBalanceDec.BigInt())
-		if buyOnOsmo.SellAmount.GT(quoteBalance) {
-			be.logger.Info("not enough balance to perform trade", zap.String("pair", pair.String()), zap.String("buyAmount", buyOnOsmo.BuyAmount.String()), zap.String("balance", osmoBalances.GetBalance(pair.BaseInterchainDenom()).String()))
-			return
+		// check that we have enough balance to perform the trade on osmo
+		quoteBalanceOsmo := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.QuoteInterchainDenom()).BigInt())
+		if fillAmountQuote.GT(quoteBalanceOsmo) {
+			be.logger.Info("not enough balance (osmosis) to perform full trade", zap.String("pair", pair.String()), zap.String("FillAmountQuote", buyOnOsmo.FillAmountQuote.String()), zap.String("balance", osmoBalances.AmountOf(pair.QuoteInterchainDenom()).String()))
+			fillAmountQuote = be.adjustFillAmount(fillAmountQuote, quoteBalanceOsmo)
+			fillAmountBase = fillAmountQuote.Quo(osmoPrice)
+			scaleBigDecDecimals(&fillAmountBase, baseDecimals-quoteDecimals)
 		}
 
-		coinIn := sdk.NewCoin(pair.BaseInterchainDenom(), buyOnOsmo.BuyAmount.Dec().TruncateInt())
-		commit, expectedQuoteOut, gasUsed, err := be.simulateOsmoTrade(coinIn, pair.QuoteInterchainDenom())
+		// check that we have enough balance to perform the trade on bybit
+		baseBalanceBybit := bybitBalances[pair.Base].BigDecBalance(baseDecimals)
+		if fillAmountBase.GT(baseBalanceBybit) {
+			be.logger.Info("not enough balance (bybit) to perform trade", zap.String("pair", pair.String()), zap.String("FillAmountBase", buyOnOsmo.FillAmountBase.String()), zap.String("balance", baseBalanceBybit.String()))
+			fillAmountBase = be.adjustFillAmount(fillAmountBase, baseBalanceBybit)
+			fillAmountQuote = fillAmountBase.Mul(osmoPrice)
+			scaleBigDecDecimals(&fillAmountQuote, quoteDecimals-baseDecimals)
+		}
+
+		// simulate osmo trade
+		coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), fillAmountQuote.Dec().TruncateInt())
+		commit, expectedBaseOut, gasUsed, err := be.simulateOsmoTradeOutGivenIn(coinIn, pair.BaseInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to simulate osmo trade", zap.Error(err))
 			return
 		}
 
-		profit := expectedQuoteOut.Sub(buyOnOsmo.SellAmount)
+		// expectedBaseOut should be more than final sell amount
+		profit := expectedBaseOut.Sub(fillAmountBase)
+		fmt.Println("profit: ", profit.String())
 		if profit.IsPositive() { // profit must be positive
 			be.logger.Info("arbitrage from OSMOSIS found: profitable", zap.String("pair", pair.String()), zap.String("profit", profit.String()))
 			profitValue := profit.Mul(osmoPrices.GetPriceForDenom(pair.QuoteInterchainDenom(), USDC_INTERCHAIN))
 
 			gasUsedBigDec := osmomath.NewBigDec(int64(gasUsed))
-			gasValue := gasUsedBigDec.Mul(osmoPrices.GetPriceForDenom(UOSMO, USDC_INTERCHAIN))
+			gasPrice := osmoPrices.GetPriceForDenom(UOSMO, USDC_INTERCHAIN)
+			gasValue := gasUsedBigDec.Mul(gasPrice)
 
 			fmt.Println("profitValue: ", profitValue.String())
 			fmt.Println("gasValue: ", gasValue.String())
@@ -275,7 +330,7 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, osmoPrices do
 
 				go func() {
 					defer localWg.Done()
-					be.spot(pair, SELL, buyOnOsmo.SellAmount)
+					be.spot(pair, SELL, fillAmountBase)
 				}()
 
 				localWg.Wait()
@@ -285,34 +340,55 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, osmoPrices do
 
 	buyOnBybit := be.existsArbitrageOpportunity(bybitOrderbook.AsksAscending(), osmoPrice, baseDecimals, quoteDecimals)
 	if buyOnBybit != nil {
+		fillAmountQuote := buyOnBybit.FillAmountQuote
+		fillAmountBase := buyOnBybit.FillAmountBase
+
 		// first, check that fill amount is at least the minimum amount
-		minFill, ok := be.getMinFillAmount(pair.BaseInterchainDenom())
+		minFill, ok := be.getMinFillAmount(pair.QuoteInterchainDenom())
 		if !ok {
 			be.logger.Error("failed to get min fill amount", zap.Error(err))
 			return
 		}
 
-		if buyOnBybit.BuyAmount.LT(minFill) {
-			be.logger.Info("buy amount is less than min fill amount", zap.String("pair", pair.String()), zap.String("buyAmount", buyOnBybit.BuyAmount.String()), zap.String("minFill", minFill.String()))
+		if fillAmountQuote.LT(minFill) {
+			be.logger.Info("buy amount is less than min fill amount", zap.String("pair", pair.String()), zap.String("FillAmountQuote", buyOnBybit.FillAmountQuote.String()), zap.String("minFill", minFill.String()))
 			return
 		}
 
-		coinIn := sdk.NewCoin(pair.QuoteInterchainDenom(), buyOnBybit.SellAmount.Dec().TruncateInt())
-		commit, expectedBaseOut, gasUsed, err := be.simulateOsmoTrade(coinIn, pair.BaseInterchainDenom())
+		// check that we have enough balance to perform the trade on bybit
+		quoteBalanceBybit := bybitBalances[pair.Quote].BigDecBalance(quoteDecimals)
+		if fillAmountQuote.GT(quoteBalanceBybit) {
+			be.logger.Info("not enough balance (bybit) to perform full trade", zap.String("pair", pair.String()), zap.String("FillAmountQuote", buyOnBybit.FillAmountQuote.String()), zap.String("balance", quoteBalanceBybit.String()))
+			fillAmountQuote = be.adjustFillAmount(fillAmountQuote, quoteBalanceBybit)
+			fillAmountBase = fillAmountQuote.Quo(osmoPrice)
+			scaleBigDecDecimals(&fillAmountBase, baseDecimals-quoteDecimals)
+		}
+
+		// check that we have enough balance to perform the trade on osmo
+		baseBalanceOsmo := osmomath.NewBigDecFromBigInt(osmoBalances.AmountOf(pair.BaseInterchainDenom()).BigInt())
+		if fillAmountBase.GT(baseBalanceOsmo) {
+			be.logger.Info("not enough balance (osmosis) to perform trade", zap.String("pair", pair.String()), zap.String("FillAmountBase", buyOnBybit.FillAmountBase.String()), zap.String("balance", baseBalanceOsmo.String()))
+			fillAmountBase = be.adjustFillAmount(fillAmountBase, baseBalanceOsmo)
+			fillAmountQuote = fillAmountBase.Mul(osmoPrice)
+			scaleBigDecDecimals(&fillAmountQuote, quoteDecimals-baseDecimals)
+		}
+
+		coinIn := sdk.NewCoin(pair.BaseInterchainDenom(), fillAmountBase.Dec().TruncateInt())
+		commit, expectedQuoteOut, gasUsed, err := be.simulateOsmoTradeOutGivenIn(coinIn, pair.QuoteInterchainDenom())
 		if err != nil {
 			be.logger.Error("failed to simulate osmo trade", zap.Error(err))
 			return
 		}
 
-		// expectedBaseOut is the final amount of base tokens we get when performing trade on osmo
-		// buyOnBybit.BuyAmount is the amount of base tokens we would have bought on bybit
-		profit := expectedBaseOut.Sub(buyOnBybit.BuyAmount)
+		profit := expectedQuoteOut.Sub(fillAmountQuote)
+		fmt.Println("profit: ", profit.String())
 		if profit.IsPositive() {
 			be.logger.Info("arbitrage from BYBIT found: profitable", zap.String("pair", pair.String()), zap.String("profit", profit.String()))
 			profitValue := profit.Mul(osmoPrices.GetPriceForDenom(pair.BaseInterchainDenom(), USDC_INTERCHAIN))
 
 			gasUsedBigDec := osmomath.NewBigDec(int64(gasUsed))
-			gasValue := gasUsedBigDec.Mul(osmoPrices.GetPriceForDenom(UOSMO, USDC_INTERCHAIN))
+			gasPrice := osmoPrices.GetPriceForDenom(UOSMO, USDC_INTERCHAIN)
+			gasValue := gasUsedBigDec.Mul(gasPrice)
 
 			fmt.Println("profitValue: ", profitValue.String())
 			fmt.Println("gasValue: ", gasValue.String())
@@ -323,7 +399,7 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, osmoPrices do
 
 				go func() {
 					defer localWg.Done()
-					be.spot(pair, BUY, buyOnBybit.BuyAmount)
+					be.spot(pair, BUY, fillAmountQuote)
 				}()
 
 				go func() {
@@ -337,40 +413,30 @@ func (be *BybitExchange) processPair(pair osmocexfillertypes.Pair, osmoPrices do
 	}
 }
 
-// simulates trade on osmosis. Returns expectedAmountOut and gas used
-// func (be *BybitExchange) simulateTrade(pair osmocexfillertypes.Pair, ad *ArbitrageDirection) (osmomath.BigDec, uint64, error) {
-// 	switch ad.BuyFrom {
-// 	case BYBIT: // sell on osmo
-// 		sellCoin := sdk.NewCoin(pair.QuoteInterchainDenom(), ad.SellAmount.Dec().TruncateInt())
-// 		adjustedGasUsed, amountOutBaseExpected, err := be.simulateOsmoTrade(sellCoin, pair.BaseInterchainDenom())
-// 		if err != nil {
-// 			be.logger.Error("failed to simulate osmo trade", zap.Error(err))
-// 			return osmomath.NewBigDec(0), 0, err
-// 		}
+// bybitEstimateOutGivenIn estimates the amount of base tokens you get when trading
+func (be *BybitExchange) bybitEstimateOutGivenIn(orders osmocexfillertypes.Orders, fillAmount, priceThreshold osmomath.BigDec, accumF orderAccumulatorFunction, stopF priceLevelStopFunction) (out osmomath.BigDec) {
+	out = osmomath.NewBigDec(0)
+	// iterate through orders
+	for _, order := range orders {
+		// check if stop rule is met
+		if stopF(order.GetPrice(), priceThreshold) || fillAmount.IsZero() {
+			return
+		}
 
-// 		if amountOutBaseExpected.GT(ad.BuyAmount) {
-// 			return amountOutBaseExpected, adjustedGasUsed, nil
-// 		}
+		// amount to add on this price level
+		added := accumF(order.GetSize(), order.GetPrice())
 
-// 		return osmomath.NewBigDec(0), 0, errors.New("expected amount out is less than buy amount")
+		// check that the added amount is not greater than the fill amount
+		if added.GT(fillAmount) {
+			added = fillAmount
+		}
 
-// 	case OSMO: // buy on osmo
-// 		buyCoin := sdk.NewCoin(pair.BaseInterchainDenom(), ad.BuyAmount.Dec().TruncateInt())
-// 		adjustedGasUsed, amountOutQuoteExpected, err := be.simulateOsmoTrade(buyCoin, pair.QuoteInterchainDenom())
-// 		if err != nil {
-// 			be.logger.Error("failed to simulate osmo trade", zap.Error(err))
-// 			return osmomath.NewBigDec(0), 0, err
-// 		}
+		out.AddMut(added)
+		fillAmount.SubMut(added)
+	}
 
-// 		if amountOutQuoteExpected.GT(ad.SellAmount) {
-// 			return amountOutQuoteExpected, adjustedGasUsed, nil
-// 		}
-// 	}
-
-// 	return osmomath.NewBigDec(0), 0, errors.New("invalid buy from")
-// }
-
-// func (be *BybitExchange)
+	return
+}
 
 func (be *BybitExchange) getDecimalsForPair(pair osmocexfillertypes.Pair) (int, int, error) {
 	baseDecimals, err := be.getInterchainDenomDecimals(pair.BaseInterchainDenom())

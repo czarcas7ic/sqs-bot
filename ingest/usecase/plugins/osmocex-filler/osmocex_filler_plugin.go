@@ -70,17 +70,17 @@ func New(poolsUseCase mvc.PoolsUsecase, tokensUseCase mvc.TokensUsecase, routerU
 }
 
 func (oc *osmocexFillerIngestPlugin) ProcessEndBlock(ctx context.Context, blockHeight uint64, metadata domain.BlockPoolMetadata) error {
-	ctx, span := tracer.Start(ctx, "osmocexfiller.ProcessEndBlock")
-	defer span.End()
+	// ctx, span := tracer.Start(ctx, "osmocexfiller.ProcessEndBlock")
+	// defer span.End()
 
-	canonicalOrderbooks, err := oc.poolsUseCase.GetAllCanonicalOrderbookPoolIDs()
-	if err != nil {
-		oc.logger.Error("failed to get all canonical orderbook pool IDs", zap.Error(err))
-		return err
-	}
+	// canonicalOrderbooks, err := oc.poolsUseCase.GetAllCanonicalOrderbookPoolIDs()
+	// if err != nil {
+	// 	oc.logger.Error("failed to get all canonical orderbook pool IDs", zap.Error(err))
+	// 	return err
+	// }
 
 	// Fetch ticks for all the orderbooks
-	oc.fetchTicksForModifiedOrderbooks(ctx, &metadata.PoolIDs, canonicalOrderbooks)
+	// oc.fetchTicksForModifiedOrderbooks(ctx, &metadata.PoolIDs, canonicalOrderbooks)
 
 	// For simplicity, we allow only one block to be processed at a time.
 	// This may be relaxed in the future.

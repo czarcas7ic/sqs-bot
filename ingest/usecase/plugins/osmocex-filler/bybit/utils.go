@@ -102,6 +102,7 @@ func addBigDecDecimals(bd *osmomath.BigDec, decimals int) {
 // 	bd.QuoMut(divisor)
 // }
 
+// scaleBigDecDecimals adjusts the number of decimals in a big dec. Positive decimals means appending more decimals, negative means removing decimals
 func scaleBigDecDecimals(bd *osmomath.BigDec, decimals int) {
 	base := osmomath.NewBigDec(10)
 	if decimals < 0 {

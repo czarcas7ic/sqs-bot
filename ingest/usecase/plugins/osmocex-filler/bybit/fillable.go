@@ -7,10 +7,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var (
-	bps = osmomath.NewBigDec(10000)
-)
-
 func (be *BybitExchange) existsArbitrageOpportunity(bybitOrders osmocexfillertypes.Orders, osmoPrice osmomath.BigDec, baseDecimals, quoteDecimals int) *ArbitrageDirection {
 	switch bybitOrders.Direction() {
 	case osmocexfillertypes.BID: // bid should be greater than osmo price (buy from osmo, sell on bybit)
@@ -18,16 +14,16 @@ func (be *BybitExchange) existsArbitrageOpportunity(bybitOrders osmocexfillertyp
 		bybitHighestBidPrice := osmomath.MustNewBigDecFromStr(bybitHighestBid.GetPrice())
 
 		if bybitHighestBidPrice.GT(osmoPrice) {
-			// WARN:
-			// - fillAmountBase is returned with base's precision, upstream must unscale it (when asks on bybit)
-			fillAmountBase := computeFillableAmount(bybitOrders, osmoPrice)
-			fillAmountQuote := fillAmountBase.Mul(osmoPrice)
+			// bids' sizes are in quote tokens
+			fillAmountQuote := computeFillableAmount(bybitOrders, osmoPrice)
+			fillAmountBase := fillAmountQuote.Quo(osmoPrice)
 
-			scaleBigDecDecimals(&fillAmountBase, baseDecimals)
-			scaleBigDecDecimals(&fillAmountQuote, quoteDecimals)
+			scaleBigDecDecimals(&fillAmountBase, baseDecimals-quoteDecimals)
 
 			return NewArbitrageDirection(OSMO, BYBIT, fillAmountBase, fillAmountQuote)
 		}
+
+		be.logger.Info("no arbitrage opportunity found", zap.Any("bybitHighestBidPrice", bybitHighestBidPrice), zap.Any("osmoPrice", osmoPrice))
 
 		return nil
 	case osmocexfillertypes.ASK: // ask should be less than osmo price (buy from bybit, sell on osmo)
@@ -35,15 +31,15 @@ func (be *BybitExchange) existsArbitrageOpportunity(bybitOrders osmocexfillertyp
 		bybitLowestAskPrice := osmomath.MustNewBigDecFromStr(bybitLowestAsk.GetPrice())
 
 		if bybitLowestAskPrice.LT(osmoPrice) {
-			fillAmountQuote := computeFillableAmount(bybitOrders, osmoPrice)
-			fillAmountBase := fillAmountQuote.Quo(osmoPrice)
+			fillAmountBase := computeFillableAmount(bybitOrders, osmoPrice)
+			fillAmountQuote := fillAmountBase.Mul(osmoPrice)
 
-			scaleBigDecDecimals(&fillAmountBase, baseDecimals)
-			scaleBigDecDecimals(&fillAmountQuote, quoteDecimals)
+			scaleBigDecDecimals(&fillAmountQuote, quoteDecimals-baseDecimals)
 
 			return NewArbitrageDirection(BYBIT, OSMO, fillAmountBase, fillAmountQuote)
 		}
 
+		be.logger.Info("no arbitrage opportunity found", zap.Any("bybitLowestAskPrice", bybitLowestAskPrice), zap.Any("osmoPrice", osmoPrice))
 		return nil
 	}
 
@@ -52,19 +48,29 @@ func (be *BybitExchange) existsArbitrageOpportunity(bybitOrders osmocexfillertyp
 }
 
 func computeFillableAmount(bybitOrders osmocexfillertypes.Orders, price osmomath.BigDec) osmomath.BigDec {
-	fillAmount := osmomath.ZeroBigDec()
-	switch bybitOrders.Direction() {
-	case osmocexfillertypes.BID: // bids should be greater than osmo price
-		order := bybitOrders[0]
-		for orderPrice := osmomath.MustNewBigDecFromStr(order.GetPrice()); orderPrice.GT(price); {
-			fillAmount.AddMut(osmomath.MustNewBigDecFromStr(order.GetSize()))
-		}
-	case osmocexfillertypes.ASK: // asks should be less than osmo price
-		order := bybitOrders[0]
-		for orderPrice := osmomath.MustNewBigDecFromStr(order.GetPrice()); orderPrice.LT(price); {
-			fillAmount.AddMut(osmomath.MustNewBigDecFromStr(order.GetSize()))
-		}
-	}
+	var order osmocexfillertypes.OrderBasicI
 
+	fillAmount := osmomath.ZeroBigDec()
+	index := 0
+	isBid := bybitOrders.Direction() == osmocexfillertypes.BID
+
+	for index < len(bybitOrders) {
+		order = bybitOrders[index]
+		orderPrice := osmomath.MustNewBigDecFromStr(order.GetPrice())
+
+		if orderPrice.GT(price) && isBid { // for bids
+			fillAmount.AddMut(osmomath.MustNewBigDecFromStr(order.GetSize()))
+		} else if isBid { // if bid and price is not higher
+			break
+		}
+
+		if orderPrice.LT(price) && !isBid { // for asks
+			fillAmount.AddMut(osmomath.MustNewBigDecFromStr(order.GetSize()))
+		} else if !isBid { // if ask and price is not lower
+			break
+		}
+
+		index++
+	}
 	return fillAmount
 }

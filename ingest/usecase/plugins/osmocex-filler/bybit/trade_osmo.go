@@ -33,28 +33,27 @@ var (
 	defaultGasPrice = osmomath.MustNewBigDecFromStr("0.1")
 
 	// (1 - slippageTolerance) * 100
-	// slippage = 0.1% tolerance
-	valueFraction = osmomath.MustNewBigDecFromStr("99.9").Dec()
+	// slippage tolerance = 0.5%
+	valueFraction = osmomath.MustNewBigDecFromStr("0.995")
 )
 
 // simulates osmo trade. Returns expected amount out and gas used
 // TODO: move somewhere else
-func (be *BybitExchange) simulateOsmoTrade(coin sdk.Coin, denom string) (func(), osmomath.BigDec, uint64, error) {
-	quote, err := (*be.osmoRouterUsecase).GetSimpleQuote(be.ctx, coin, denom, domain.WithDisableSplitRoutes())
+func (be *BybitExchange) simulateOsmoTradeOutGivenIn(coinIn sdk.Coin, denomOut string) (func(), osmomath.BigDec, uint64, error) {
+	quote, err := (*be.osmoRouterUsecase).GetOptimalQuote(be.ctx, coinIn, denomOut, domain.WithDisableSplitRoutes())
 	if err != nil {
 		be.logger.Error("failed to get simple quote", zap.Error(err))
 		return nil, osmomath.ZeroBigDec(), 0, err
 	}
 
-	// (*be.osmoRouterUsecase).GetOptimalQuoteInGivenOut(be.ctx, coin)
-
-	amountOutExpected := quote.GetAmountOut().Mul(valueFraction.TruncateInt())
+	amountOutExpected := quote.GetAmountOut()
 	amountOutExpectedBigDec := osmomath.NewBigDecFromBigInt(amountOutExpected.BigInt())
+	amountOutExpectedBigDec.MulMut(valueFraction)
 
 	splitRoute := quote.GetRoute()
 	if len(splitRoute) != 1 { // disabled splits
-		be.logger.Error("route should have 1 route")
-		return nil, osmomath.ZeroBigDec(), 0, fmt.Errorf("route should have 1 route")
+		be.logger.Error("split route should have 1 route")
+		return nil, osmomath.ZeroBigDec(), 0, fmt.Errorf("split route should have 1 route")
 	}
 
 	route := splitRoute[0].GetPools()
@@ -69,8 +68,8 @@ func (be *BybitExchange) simulateOsmoTrade(coin sdk.Coin, denom string) (func(),
 	swapMsg := &poolmanagertypes.MsgSwapExactAmountIn{
 		Sender:            (*be.osmoKeyring).GetAddress().String(),
 		Routes:            poolmanagerRoute,
-		TokenIn:           coin,
-		TokenOutMinAmount: amountOutExpected,
+		TokenIn:           coinIn,
+		TokenOutMinAmount: amountOutExpectedBigDec.Dec().RoundInt(),
 	}
 
 	msgs := []sdk.Msg{swapMsg}
@@ -93,6 +92,59 @@ func (be *BybitExchange) simulateOsmoTrade(coin sdk.Coin, denom string) (func(),
 
 	return tradeFunction, amountOutExpectedBigDec, adjustedGasUsed, nil
 }
+
+// func (be *BybitExchange) simulateOsmoTradeInGivenOut(coinOut sdk.Coin, denomIn string) (func(), osmomath.BigDec, uint64, error) {
+// 	quote, err := (*be.osmoRouterUsecase).GetOptimalQuoteInGivenOut(be.ctx, coinOut, denomIn, domain.WithDisableSplitRoutes())
+// 	if err != nil {
+// 		be.logger.Error("failed to get simple quote", zap.Error(err))
+// 		return nil, osmomath.ZeroBigDec(), 0, err
+// 	}
+
+// 	amountInExpected := osmomath.NewBigDecFromBigInt(quote.GetAmountIn().Amount.BigInt())
+// 	amountInExpected = amountInExpected.Quo(osmomath.NewBigDecFromBigInt(valueFraction.BigInt()))
+
+// 	splitRoute := quote.GetRoute()
+// 	if len(splitRoute) != 1 { // disabled splits
+// 		be.logger.Error("route should have 1 route")
+// 		return nil, osmomath.ZeroBigDec(), 0, fmt.Errorf("route should have 1 route")
+// 	}
+
+// 	route := splitRoute[0].GetPools()
+// 	poolmanagerRoute := make([]poolmanagertypes.SwapAmountOutRoute, 0, len(route))
+// 	for _, pool := range route {
+// 		poolmanagerRoute = append(poolmanagerRoute, poolmanagertypes.SwapAmountOutRoute{
+// 			PoolId:       pool.GetId(),
+// 			TokenInDenom: pool.GetTokenInDenom(),
+// 		})
+// 	}
+
+// 	swapMsg := &poolmanagertypes.MsgSwapExactAmountOut{
+// 		Sender:           (*be.osmoKeyring).GetAddress().String(),
+// 		Routes:           poolmanagerRoute,
+// 		TokenOut:         coinOut,
+// 		TokenInMaxAmount: amountInExpected.Dec().RoundInt(),
+// 	}
+
+// 	msgs := []sdk.Msg{swapMsg}
+
+// 	_, adjustedGasUsed, err := be.simulateOsmoMsgs(be.ctx, msgs)
+// 	if err != nil {
+// 		be.logger.Error("failed to simulate osmo msg", zap.Error(err))
+// 		return nil, osmomath.ZeroBigDec(), 0, err
+// 	}
+
+// 	// function to perform this trade upstream
+// 	tradeFunction := func() {
+// 		localAdjustedGasUsed := adjustedGasUsed
+// 		_, _, err := be.executeOsmoMsgs(msgs, localAdjustedGasUsed)
+// 		if err != nil {
+// 			be.logger.Error("failed to execute osmo msg", zap.Error(err))
+// 			return
+// 		}
+// 	}
+
+// 	return tradeFunction, amountInExpected, adjustedGasUsed, nil
+// }
 
 func (be *BybitExchange) executeOsmoMsgs(msgs []sdk.Msg, adjustedGasUsed uint64) (*coretypes.ResultBroadcastTx, string, error) {
 	key := (*be.osmoKeyring).GetKey()
