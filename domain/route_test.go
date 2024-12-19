@@ -14,7 +14,8 @@ import (
 	"github.com/osmosis-labs/sqs/router/usecase/route"
 	"github.com/osmosis-labs/sqs/router/usecase/routertesting"
 
-	poolmanagertypes "github.com/osmosis-labs/osmosis/v25/x/poolmanager/types"
+	"github.com/osmosis-labs/osmosis/osmomath"
+	poolmanagertypes "github.com/osmosis-labs/osmosis/v28/x/poolmanager/types"
 )
 
 type RouterTestSuite struct {
@@ -44,9 +45,9 @@ var (
 	DefaultLiquidityAmt = routertesting.DefaultLiquidityAmt
 
 	// router specific variables
-	// defaultTickModel = routertesting.DefaultTickModel
+	defaultTickModel = routertesting.DefaultTickModel
 
-	// noTakerFee = routertesting.NoTakerFee
+	noTakerFee = routertesting.NoTakerFee
 
 	emptyRoute = routertesting.EmptyRoute
 )
@@ -84,8 +85,8 @@ func (s *RouterTestSuite) TestPrepareResultPools() {
 	)
 
 	balancerPoolID := s.PrepareBalancerPoolWithCoins(sdk.NewCoins(
-		sdk.NewCoin(DenomOne, sdk.NewInt(1_000_000_000)),
-		sdk.NewCoin(DenomTwo, sdk.NewInt(1_000_000_000)),
+		sdk.NewCoin(DenomOne, osmomath.NewInt(1_000_000_000)),
+		sdk.NewCoin(DenomTwo, osmomath.NewInt(1_000_000_000)),
 	)...)
 
 	balancerPool, err := s.App.PoolManagerKeeper.GetPool(s.Ctx, balancerPoolID)

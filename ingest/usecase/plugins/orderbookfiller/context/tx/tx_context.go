@@ -6,7 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/osmosis-labs/osmosis/osmomath"
-	poolmanagertypes "github.com/osmosis-labs/osmosis/v25/x/poolmanager/types"
+	poolmanagertypes "github.com/osmosis-labs/osmosis/v28/x/poolmanager/types"
 	msgctx "github.com/osmosis-labs/sqs/ingest/usecase/plugins/orderbookfiller/context/msg"
 )
 
@@ -55,7 +55,7 @@ type txContext struct {
 	msgs                 []msgctx.MsgContextI
 	uniquePools          map[uint64]struct{} // pools that have already been used by high value messages
 	adjustedGasUsedTotal uint64
-	maxTxFeeCap          sdk.Dec
+	maxTxFeeCap          osmomath.Dec
 }
 
 // GetSDKMsgs implements TxContextI.

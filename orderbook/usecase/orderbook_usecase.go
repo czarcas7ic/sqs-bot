@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
-	cwpoolmodel "github.com/osmosis-labs/osmosis/v25/x/cosmwasmpool/model"
+	cwpoolmodel "github.com/osmosis-labs/osmosis/v28/x/cosmwasmpool/model"
 	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	orderbookdomain "github.com/osmosis-labs/sqs/domain/orderbook"
@@ -18,7 +18,7 @@ import (
 	"github.com/osmosis-labs/sqs/sqsdomain"
 	"go.uber.org/zap"
 
-	clmath "github.com/osmosis-labs/osmosis/v25/x/concentrated-liquidity/math"
+	clmath "github.com/osmosis-labs/osmosis/v28/x/concentrated-liquidity/math"
 )
 
 type OrderbookUseCaseImpl struct {
@@ -137,6 +137,77 @@ func (o *OrderbookUseCaseImpl) ProcessPool(ctx context.Context, pool sqsdomain.P
 	return nil
 }
 
+var (
+	// fetchActiveOrdersEvery is a duration in which orders are pushed to the client periodically
+	// This is an arbitrary number selected to avoid spamming the client
+	fetchActiveOrdersDuration = 10 * time.Second
+
+	// getActiveOrdersStreamChanLen is the length of the channel for active orders stream
+	// length is arbitrary number selected to avoid blocking
+	getActiveOrdersStreamChanLen = 50
+)
+
+// GetActiveOrdersStream implements mvc.OrderBookUsecase.
+func (o *OrderbookUseCaseImpl) GetActiveOrdersStream(ctx context.Context, address string) <-chan orderbookdomain.OrderbookResult {
+	// Result channel
+	c := make(chan orderbookdomain.OrderbookResult, getActiveOrdersStreamChanLen)
+
+	// Function to fetch orders
+	fetchOrders := func(ctx context.Context) {
+		orderbooks, err := o.poolsUsecease.GetAllCanonicalOrderbookPoolIDs()
+		if err != nil {
+			c <- orderbookdomain.OrderbookResult{
+				Error: types.FailedGetAllCanonicalOrderbookPoolIDsError{Err: err},
+			}
+			return
+		}
+
+		for _, orderbook := range orderbooks {
+			go func(orderbook domain.CanonicalOrderBooksResult) {
+				limitOrders, isBestEffort, err := o.processOrderBookActiveOrders(ctx, orderbook, address)
+				if len(limitOrders) == 0 && err == nil {
+					return // skip empty orders
+				}
+
+				if err != nil {
+					telemetry.ProcessingOrderbookActiveOrdersErrorCounter.Inc()
+					o.logger.Error(telemetry.ProcessingOrderbookActiveOrdersErrorMetricName, zap.Any("pool_id", orderbook.PoolID), zap.Any("err", err))
+				}
+
+				select {
+				case c <- orderbookdomain.OrderbookResult{
+					PoolID:       orderbook.PoolID,
+					IsBestEffort: isBestEffort,
+					LimitOrders:  limitOrders,
+					Error:        err,
+				}:
+				case <-ctx.Done():
+					return
+				}
+			}(orderbook)
+		}
+	}
+
+	// Fetch orders immediately on start
+	go fetchOrders(ctx)
+
+	// Pull orders periodically based on duration
+	go func() {
+		ticker := time.NewTicker(fetchActiveOrdersDuration)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				fetchOrders(ctx)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return c
+}
+
 // GetActiveOrders implements mvc.OrderBookUsecase.
 func (o *OrderbookUseCaseImpl) GetActiveOrders(ctx context.Context, address string) ([]orderbookdomain.LimitOrder, bool, error) {
 	orderbooks, err := o.poolsUsecease.GetAllCanonicalOrderbookPoolIDs()
@@ -144,25 +215,17 @@ func (o *OrderbookUseCaseImpl) GetActiveOrders(ctx context.Context, address stri
 		return nil, false, types.FailedGetAllCanonicalOrderbookPoolIDsError{Err: err}
 	}
 
-	type orderbookResult struct {
-		isBestEffort bool
-		orderbookID  uint64
-		limitOrders  []orderbookdomain.LimitOrder
-		err          error
-	}
-
-	results := make(chan orderbookResult, len(orderbooks))
+	results := make(chan orderbookdomain.OrderbookResult, len(orderbooks))
 
 	// Process orderbooks concurrently
 	for _, orderbook := range orderbooks {
 		go func(orderbook domain.CanonicalOrderBooksResult) {
 			limitOrders, isBestEffort, err := o.processOrderBookActiveOrders(ctx, orderbook, address)
-
-			results <- orderbookResult{
-				isBestEffort: isBestEffort,
-				orderbookID:  orderbook.PoolID,
-				limitOrders:  limitOrders,
-				err:          err,
+			results <- orderbookdomain.OrderbookResult{
+				IsBestEffort: isBestEffort,
+				PoolID:       orderbook.PoolID,
+				LimitOrders:  limitOrders,
+				Error:        err,
 			}
 		}(orderbook)
 	}
@@ -174,14 +237,14 @@ func (o *OrderbookUseCaseImpl) GetActiveOrders(ctx context.Context, address stri
 	for i := 0; i < len(orderbooks); i++ {
 		select {
 		case result := <-results:
-			if result.err != nil {
+			if result.Error != nil {
 				telemetry.ProcessingOrderbookActiveOrdersErrorCounter.Inc()
-				o.logger.Error(telemetry.ProcessingOrderbookActiveOrdersErrorMetricName, zap.Any("orderbook_id", result.orderbookID), zap.Any("err", result.err))
+				o.logger.Error(telemetry.ProcessingOrderbookActiveOrdersErrorMetricName, zap.Any("pool_id", result.PoolID), zap.Any("err", result.Error))
 			}
 
-			isBestEffort = isBestEffort || result.isBestEffort
+			isBestEffort = isBestEffort || result.IsBestEffort
 
-			finalResults = append(finalResults, result.limitOrders...)
+			finalResults = append(finalResults, result.LimitOrders...)
 		case <-ctx.Done():
 			return nil, false, ctx.Err()
 		}
@@ -199,15 +262,15 @@ func (o *OrderbookUseCaseImpl) GetActiveOrders(ctx context.Context, address stri
 //
 // For every order, if an error occurs processing the order, it is skipped rather than failing the entire process.
 // This is a best-effort process.
-func (o *OrderbookUseCaseImpl) processOrderBookActiveOrders(ctx context.Context, orderBook domain.CanonicalOrderBooksResult, ownerAddress string) ([]orderbookdomain.LimitOrder, bool, error) {
-	if err := orderBook.Validate(); err != nil {
+func (o *OrderbookUseCaseImpl) processOrderBookActiveOrders(ctx context.Context, orderbook domain.CanonicalOrderBooksResult, ownerAddress string) ([]orderbookdomain.LimitOrder, bool, error) {
+	if err := orderbook.Validate(); err != nil {
 		return nil, false, err
 	}
 
-	orders, count, err := o.orderBookClient.GetActiveOrders(ctx, orderBook.ContractAddress, ownerAddress)
+	orders, count, err := o.orderBookClient.GetActiveOrders(ctx, orderbook.ContractAddress, ownerAddress)
 	if err != nil {
 		return nil, false, types.FailedToGetActiveOrdersError{
-			ContractAddress: orderBook.ContractAddress,
+			ContractAddress: orderbook.ContractAddress,
 			OwnerAddress:    ownerAddress,
 			Err:             err,
 		}
@@ -216,22 +279,6 @@ func (o *OrderbookUseCaseImpl) processOrderBookActiveOrders(ctx context.Context,
 	// There are orders to process for given orderbook
 	if count == 0 {
 		return nil, false, nil
-	}
-
-	quoteToken, err := o.tokensUsecease.GetMetadataByChainDenom(orderBook.Quote)
-	if err != nil {
-		return nil, false, types.FailedToGetMetadataError{
-			TokenDenom: orderBook.Quote,
-			Err:        err,
-		}
-	}
-
-	baseToken, err := o.tokensUsecease.GetMetadataByChainDenom(orderBook.Base)
-	if err != nil {
-		return nil, false, types.FailedToGetMetadataError{
-			TokenDenom: orderBook.Base,
-			Err:        err,
-		}
 	}
 
 	// Create a slice to store the results
@@ -243,18 +290,9 @@ func (o *OrderbookUseCaseImpl) processOrderBookActiveOrders(ctx context.Context,
 	// For each order, create a formatted limit order
 	for _, order := range orders {
 		// create limit order
-		result, err := o.createFormattedLimitOrder(
-			orderBook.PoolID,
+		result, err := o.CreateFormattedLimitOrder(
+			orderbook,
 			order,
-			orderbookdomain.Asset{
-				Symbol:   quoteToken.CoinMinimalDenom,
-				Decimals: quoteToken.Precision,
-			},
-			orderbookdomain.Asset{
-				Symbol:   baseToken.CoinMinimalDenom,
-				Decimals: baseToken.Precision,
-			},
-			orderBook.ContractAddress,
 		)
 		if err != nil {
 			telemetry.CreateLimitOrderErrorCounter.Inc()
@@ -275,19 +313,39 @@ func (o *OrderbookUseCaseImpl) processOrderBookActiveOrders(ctx context.Context,
 // It is defined in a global space to avoid creating a new instance every time.
 var zeroDec = osmomath.ZeroDec()
 
-// createFormattedLimitOrder creates a limit order from the orderbook order.
-func (o *OrderbookUseCaseImpl) createFormattedLimitOrder(
-	poolID uint64,
-	order orderbookdomain.Order,
-	quoteAsset orderbookdomain.Asset,
-	baseAsset orderbookdomain.Asset,
-	orderbookAddress string,
-) (orderbookdomain.LimitOrder, error) {
-	tickForOrder, ok := o.orderbookRepository.GetTickByID(poolID, order.TickId)
+// CreateFormattedLimitOrder creates a limit order from the orderbook order.
+func (o *OrderbookUseCaseImpl) CreateFormattedLimitOrder(orderbook domain.CanonicalOrderBooksResult, order orderbookdomain.Order) (orderbookdomain.LimitOrder, error) {
+	quoteToken, err := o.tokensUsecease.GetMetadataByChainDenom(orderbook.Quote)
+	if err != nil {
+		return orderbookdomain.LimitOrder{}, types.FailedToGetMetadataError{
+			TokenDenom: orderbook.Quote,
+			Err:        err,
+		}
+	}
+
+	quoteAsset := orderbookdomain.Asset{
+		Symbol:   quoteToken.CoinMinimalDenom,
+		Decimals: quoteToken.Precision,
+	}
+
+	baseToken, err := o.tokensUsecease.GetMetadataByChainDenom(orderbook.Base)
+	if err != nil {
+		return orderbookdomain.LimitOrder{}, types.FailedToGetMetadataError{
+			TokenDenom: orderbook.Base,
+			Err:        err,
+		}
+	}
+
+	baseAsset := orderbookdomain.Asset{
+		Symbol:   baseToken.CoinMinimalDenom,
+		Decimals: baseToken.Precision,
+	}
+
+	tickForOrder, ok := o.orderbookRepository.GetTickByID(orderbook.PoolID, order.TickId)
 	if !ok {
 		telemetry.GetTickByIDNotFoundCounter.Inc()
 		return orderbookdomain.LimitOrder{}, types.TickForOrderbookNotFoundError{
-			OrderbookAddress: orderbookAddress,
+			OrderbookAddress: orderbook.ContractAddress,
 			TickID:           order.TickId,
 		}
 	}
@@ -434,7 +492,7 @@ func (o *OrderbookUseCaseImpl) createFormattedLimitOrder(
 		PercentClaimed:   percentClaimed,
 		TotalFilled:      totalFilled,
 		PercentFilled:    percentFilled,
-		OrderbookAddress: orderbookAddress,
+		OrderbookAddress: orderbook.ContractAddress,
 		Price:            normalizedPrice,
 		Status:           status,
 		Output:           output,
@@ -442,4 +500,97 @@ func (o *OrderbookUseCaseImpl) createFormattedLimitOrder(
 		BaseAsset:        baseAsset,
 		PlacedAt:         placedAt,
 	}, nil
+}
+
+func (o *OrderbookUseCaseImpl) GetClaimableOrdersForOrderbook(ctx context.Context, fillThreshold osmomath.Dec, orderbook domain.CanonicalOrderBooksResult) ([]orderbookdomain.ClaimableOrderbook, error) {
+	ticks, ok := o.orderbookRepository.GetAllTicks(orderbook.PoolID)
+	if !ok {
+		return nil, fmt.Errorf("no ticks found for orderbook %s with pool %d", orderbook.ContractAddress, orderbook.PoolID)
+	}
+
+	var orders []orderbookdomain.ClaimableOrderbook
+	for _, tick := range ticks {
+		tickOrders, err := o.getClaimableOrdersForTick(ctx, fillThreshold, orderbook, tick)
+		orders = append(orders, orderbookdomain.ClaimableOrderbook{
+			Tick:   tick,
+			Orders: tickOrders,
+			Error:  err,
+		})
+	}
+
+	return orders, nil
+}
+
+// getClaimableOrdersForTick retrieves claimable orders for a specific tick in an orderbook
+// It processes all ask/bid direction orders and filters the orders that are claimable.
+func (o *OrderbookUseCaseImpl) getClaimableOrdersForTick(
+	ctx context.Context,
+	fillThreshold osmomath.Dec,
+	orderbook domain.CanonicalOrderBooksResult,
+	tick orderbookdomain.OrderbookTick,
+) ([]orderbookdomain.ClaimableOrder, error) {
+	orders, err := o.orderBookClient.GetOrdersByTick(ctx, orderbook.ContractAddress, tick.Tick.TickId)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(orders) == 0 {
+		return nil, nil // nothing to process
+	}
+
+	askClaimable, err := o.getClaimableOrders(orderbook, orders.OrderByDirection("ask"), tick.TickState.AskValues, fillThreshold)
+	if err != nil {
+		return nil, err
+	}
+
+	bidClaimable, err := o.getClaimableOrders(orderbook, orders.OrderByDirection("bid"), tick.TickState.BidValues, fillThreshold)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(askClaimable, bidClaimable...), nil
+}
+
+// getClaimableOrders determines which orders are claimable for a given direction (ask or bid) in a tick.
+// If the tick is fully filled, all orders are considered claimable. Otherwise, it filters the orders
+// based on the fill threshold.
+func (o *OrderbookUseCaseImpl) getClaimableOrders(
+	orderbook domain.CanonicalOrderBooksResult,
+	orders orderbookdomain.Orders,
+	tickValues orderbookdomain.TickValues,
+	fillThreshold osmomath.Dec,
+) ([]orderbookdomain.ClaimableOrder, error) {
+	isFilled, err := tickValues.IsTickFullyFilled()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []orderbookdomain.ClaimableOrder
+	for _, order := range orders {
+		if isFilled {
+			result = append(result, orderbookdomain.ClaimableOrder{Order: order})
+			continue
+		}
+		claimable, err := o.isOrderClaimable(orderbook, order, fillThreshold)
+		orderToAdd := orderbookdomain.ClaimableOrder{Order: order, Error: err}
+
+		if err != nil || claimable {
+			result = append(result, orderToAdd)
+		}
+	}
+
+	return result, nil
+}
+
+// isOrderClaimable determines if a single order is claimable based on the fill threshold.
+func (o *OrderbookUseCaseImpl) isOrderClaimable(
+	orderbook domain.CanonicalOrderBooksResult,
+	order orderbookdomain.Order,
+	fillThreshold osmomath.Dec,
+) (bool, error) {
+	result, err := o.CreateFormattedLimitOrder(orderbook, order)
+	if err != nil {
+		return false, err
+	}
+	return result.IsClaimable(fillThreshold), nil
 }

@@ -35,6 +35,39 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+Unreleased
+
+- Fixed claimbot panics due nil routerrepo.RouterRepository in txGasCalulator
+
+## v27.2.0
+
+- #593 - Add denoms filter for /pools endpoint
+
+## v27.1.0
+
+- #553 - Add pagination + sorting + query filtering support for /pools endpoint 
+
+## v26.2.0
+
+- #554 - [FIX] Add missing checks for transmuter's limiter 
+- #548 - Return base fee in /quote regardless of simulation success.
+- #547 - Add /quote simulation for "out given in" single routes.
+- #526 - Refactor gas estimation APIs
+- #524 - Claimbot
+
+## v26.1.0
+
+e42b32bc SQS-412 | Active Orders Query: SSE (#518)
+
+## v26.0.1
+
+0c663b7f SQS-417 | Fix orderbook order Quantity parsing (#519)
+
+## v26.0.0
+
+- ee288006 Uni-directional taker fee (#510)
+- 2a657033 Fix orderbook ProcessPool panic (#498)
+
 ## v25.18.0
 
 - 10b84b4c Fix sqsdomain package version (#508)

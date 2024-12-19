@@ -23,7 +23,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 
-	"github.com/osmosis-labs/osmosis/v25/app"
+	"github.com/osmosis-labs/osmosis/v28/app"
 )
 
 const (
@@ -108,11 +108,6 @@ func main() {
 		panic(err)
 	}
 
-	// If fails, it means that the node is not reachable
-	if _, err := chainClient.GetLatestHeight(ctx); err != nil {
-		panic(err)
-	}
-
 	encCfg := app.MakeEncodingConfig()
 
 	// logger
@@ -121,6 +116,11 @@ func main() {
 		panic(fmt.Errorf("error while creating logger: %s", err))
 	}
 	logger.Info("Starting sidecar query server")
+
+	// If fails, it means that the node is not reachable
+	if _, err := chainClient.GetLatestHeight(ctx); err != nil {
+		panic(err)
+	}
 
 	sidecarQueryServer, err := NewSideCarQueryServer(encCfg.Marshaler, *config, logger)
 	if err != nil {

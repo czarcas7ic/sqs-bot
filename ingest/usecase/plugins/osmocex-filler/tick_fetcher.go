@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/osmosis-labs/sqs/domain"
+	orderbookdomain "github.com/osmosis-labs/sqs/domain/orderbook"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
 )
 
@@ -16,8 +17,8 @@ func (oc *osmocexFillerIngestPlugin) fetchTicksForOrderbook(ctx context.Context,
 	ticks := orderBookPool.GetSQSPoolModel().CosmWasmPoolModel.Data.Orderbook.Ticks
 
 	orderResult := orderbookplugindomain.OrdersResponse{
-		AskOrders: []orderbookplugindomain.Order{},
-		BidOrders: []orderbookplugindomain.Order{},
+		AskOrders: []orderbookdomain.Order{},
+		BidOrders: []orderbookdomain.Order{},
 	}
 	for _, tick := range ticks {
 		orders, err := oc.orderbookCWAPIClient.GetOrdersByTick(ctx, orderbook.ContractAddress, tick.TickId)

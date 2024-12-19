@@ -299,6 +299,24 @@ const docTemplate = `{
                         "description": "Boolean flag indicating whether to apply exponents to the spot price. False by default.",
                         "name": "applyExponents",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Address of the simulator to simulate the quote. If provided, the quote will be simulated.",
+                        "name": "simulatorAddress",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Slippage tolerance multiplier for the simulation. If simulatorAddress is provided, this must be provided.",
+                        "name": "simulationSlippageTolerance",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Boolean flag indicating whether to append the base fee to the quote. False by default.",
+                        "name": "appendBaseFee",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -514,7 +532,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "amount": {
-                    "$ref": "#/definitions/types.Int"
+                    "$ref": "#/definitions/math.Int"
                 },
                 "denom": {
                     "type": "string"
@@ -663,6 +681,9 @@ const docTemplate = `{
                 }
             }
         },
+        "math.Int": {
+            "type": "object"
+        },
         "sqsdomain.CandidatePool": {
             "type": "object",
             "properties": {
@@ -707,9 +728,6 @@ const docTemplate = `{
                     }
                 }
             }
-        },
-        "types.Int": {
-            "type": "object"
         }
     }
 }`

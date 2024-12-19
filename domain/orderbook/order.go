@@ -2,7 +2,6 @@ package orderbookdomain
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
 )
@@ -34,12 +33,12 @@ type Order struct {
 
 // Status returns the status of the order based on the percent filled.
 func (o Order) Status(percentFilled float64) (OrderStatus, error) {
-	quantity, err := strconv.Atoi(o.Quantity)
+	quantity, err := osmomath.NewDecFromStr(o.Quantity)
 	if err != nil {
 		return "", fmt.Errorf("error parsing quantity: %w", err)
 	}
 
-	if quantity == 0 || percentFilled == 1 {
+	if quantity.IsZero() || percentFilled == 1 {
 		return StatusFilled, nil
 	}
 
@@ -66,12 +65,25 @@ func (o Orders) TickID() []int64 {
 	return tickIDs
 }
 
+// OrderByDirection filters orders by given direction and returns resulting slice.
+// Original slice is not mutated.
+func (o Orders) OrderByDirection(direction string) Orders {
+	var result Orders
+	for _, v := range o {
+		if v.OrderDirection == direction {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 // Asset represents orderbook asset returned by the orderbook contract.
 type Asset struct {
 	Symbol   string `json:"symbol"`
 	Decimals int    `json:"-"`
 }
 
+// LimitOrder represents a limit order in the orderbook.
 type LimitOrder struct {
 	TickId           int64        `json:"tick_id"`
 	OrderId          int64        `json:"order_id"`
@@ -92,4 +104,34 @@ type LimitOrder struct {
 	QuoteAsset       Asset        `json:"quote_asset"`
 	BaseAsset        Asset        `json:"base_asset"`
 	PlacedTx         *string      `json:"placed_tx,omitempty"`
+}
+
+// IsClaimable reports whether the limit order is filled above the given
+// threshold to be considered as claimable.
+func (o LimitOrder) IsClaimable(threshold osmomath.Dec) bool {
+	return o.PercentFilled.GT(threshold) && o.PercentFilled.LTE(osmomath.OneDec())
+}
+
+// OrderbookResult represents orderbook orders result.
+type OrderbookResult struct {
+	LimitOrders  []LimitOrder // The channel on which the orders are delivered.
+	PoolID       uint64       // The PoolID ID.
+	IsBestEffort bool
+	Error        error
+}
+
+// ClaimableOrderbook represents a list of claimable orders for an orderbook.
+// If an error occurs processing the orders, it is stored in the error field.
+type ClaimableOrderbook struct {
+	Tick   OrderbookTick
+	Orders []ClaimableOrder
+	Error  error
+}
+
+// ClaimableOrder represents an order that is claimable.
+// If an error occurs processing the order, it is stored in the error field
+// and the order is nil.
+type ClaimableOrder struct {
+	Order Order
+	Error error
 }

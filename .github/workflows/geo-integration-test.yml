@@ -20,10 +20,10 @@ jobs:
           echo "matrix={\"include\":[{ \"server\":\"138.68.112.16:8888\", \"env\": \"prod-fra1\"}, {\"server\":\"139.59.218.19:8888\", \"env\": \"prod-sgp1\"}]}" >> "$GITHUB_OUTPUT"
 
   sqs-quote-tests:
-    timeout-minutes: 15
+    timeout-minutes: 30
     name: ${{ matrix.env }}-sqs-quote-tests
     needs: setup-matrix
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix: ${{fromJson(needs.setup-matrix.outputs.matrix)}}

@@ -5,12 +5,14 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/osmosis-labs/osmosis/osmomath"
 	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/router/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestGetQuoteRequestUnmarshal tests the UnmarshalHTTPRequest method of GetQuoteRequest.
@@ -32,9 +34,9 @@ func TestGetQuoteRequestUnmarshal(t *testing.T) {
 				"applyExponents": "true",
 			},
 			expectedResult: &types.GetQuoteRequest{
-				TokenIn:        &sdk.Coin{Denom: "ust", Amount: sdk.NewInt(1000)},
+				TokenIn:        &sdk.Coin{Denom: "ust", Amount: osmomath.NewInt(1000)},
 				TokenOutDenom:  "usdc",
-				TokenOut:       &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenOut:       &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 				TokenInDenom:   "atom",
 				SingleRoute:    true,
 				ApplyExponents: true,
@@ -124,7 +126,7 @@ func TestGetQuoteRequestSwapMethod(t *testing.T) {
 		{
 			name: "valid exact in swap method",
 			request: &types.GetQuoteRequest{
-				TokenIn:       &sdk.Coin{Denom: "ust", Amount: sdk.NewInt(1000)},
+				TokenIn:       &sdk.Coin{Denom: "ust", Amount: osmomath.NewInt(1000)},
 				TokenOutDenom: "usdc",
 			},
 			expectedMethod: domain.TokenSwapMethodExactIn,
@@ -132,7 +134,7 @@ func TestGetQuoteRequestSwapMethod(t *testing.T) {
 		{
 			name: "valid exact out swap method",
 			request: &types.GetQuoteRequest{
-				TokenOut:     &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenOut:     &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 				TokenInDenom: "ust",
 			},
 			expectedMethod: domain.TokenSwapMethodExactOut,
@@ -140,8 +142,8 @@ func TestGetQuoteRequestSwapMethod(t *testing.T) {
 		{
 			name: "invalid swap method with both tokenIn and tokenOut",
 			request: &types.GetQuoteRequest{
-				TokenIn:       &sdk.Coin{Denom: "ust", Amount: sdk.NewInt(1000)},
-				TokenOut:      &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenIn:       &sdk.Coin{Denom: "ust", Amount: osmomath.NewInt(1000)},
+				TokenOut:      &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 				TokenInDenom:  "ust",
 				TokenOutDenom: "usdc",
 			},
@@ -150,14 +152,14 @@ func TestGetQuoteRequestSwapMethod(t *testing.T) {
 		{
 			name: "invalid swap method with only tokenIn",
 			request: &types.GetQuoteRequest{
-				TokenIn: &sdk.Coin{Denom: "ust", Amount: sdk.NewInt(1000)},
+				TokenIn: &sdk.Coin{Denom: "ust", Amount: osmomath.NewInt(1000)},
 			},
 			expectedMethod: domain.TokenSwapMethodInvalid,
 		},
 		{
 			name: "invalid swap method with only tokenOut",
 			request: &types.GetQuoteRequest{
-				TokenOut: &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenOut: &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 			},
 			expectedMethod: domain.TokenSwapMethodInvalid,
 		},
@@ -186,7 +188,7 @@ func TestGetQuoteRequestValidate(t *testing.T) {
 		{
 			name: "valid exact in request",
 			request: &types.GetQuoteRequest{
-				TokenIn:       &sdk.Coin{Denom: "ust", Amount: sdk.NewInt(1000)},
+				TokenIn:       &sdk.Coin{Denom: "ust", Amount: osmomath.NewInt(1000)},
 				TokenOutDenom: "usdc",
 			},
 			expectedError: nil,
@@ -194,7 +196,7 @@ func TestGetQuoteRequestValidate(t *testing.T) {
 		{
 			name: "valid exact out request",
 			request: &types.GetQuoteRequest{
-				TokenOut:     &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenOut:     &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 				TokenInDenom: "ust",
 			},
 			expectedError: nil,
@@ -202,8 +204,8 @@ func TestGetQuoteRequestValidate(t *testing.T) {
 		{
 			name: "invalid request with both tokenIn and tokenOut",
 			request: &types.GetQuoteRequest{
-				TokenIn:       &sdk.Coin{Denom: "ust", Amount: sdk.NewInt(1000)},
-				TokenOut:      &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenIn:       &sdk.Coin{Denom: "ust", Amount: osmomath.NewInt(1000)},
+				TokenOut:      &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 				TokenInDenom:  "ust",
 				TokenOutDenom: "usdc",
 			},
@@ -212,7 +214,7 @@ func TestGetQuoteRequestValidate(t *testing.T) {
 		{
 			name: "invalid exact in request with invalid denoms",
 			request: &types.GetQuoteRequest{
-				TokenIn:       &sdk.Coin{Denom: "usdc", Amount: sdk.NewInt(1000)},
+				TokenIn:       &sdk.Coin{Denom: "usdc", Amount: osmomath.NewInt(1000)},
 				TokenOutDenom: "usdc",
 			},
 			expectedError: domain.SameDenomError{
@@ -223,7 +225,7 @@ func TestGetQuoteRequestValidate(t *testing.T) {
 		{
 			name: "invalid exact out request with invalid denoms",
 			request: &types.GetQuoteRequest{
-				TokenOut:     &sdk.Coin{Denom: "usdt", Amount: sdk.NewInt(1000)},
+				TokenOut:     &sdk.Coin{Denom: "usdt", Amount: osmomath.NewInt(1000)},
 				TokenInDenom: "usdt",
 			},
 			expectedError: domain.SameDenomError{
@@ -243,6 +245,85 @@ func TestGetQuoteRequestValidate(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestValidateSimulationParams(t *testing.T) {
+	tests := []struct {
+		name                 string
+		swapMethod           domain.TokenSwapMethod
+		simulatorAddress     string
+		slippageToleranceStr string
+		want                 osmomath.Dec
+
+		expectedError bool
+	}{
+		{
+			name:                 "valid simulation params",
+			swapMethod:           domain.TokenSwapMethodExactIn,
+			simulatorAddress:     "osmo13t8prr8hu7hkuksnfrd25vpvvnrfxr223k59ph",
+			slippageToleranceStr: "0.01",
+			want:                 osmomath.MustNewDecFromStr("0.01"),
+		},
+		{
+			name:                 "exact out swap method",
+			swapMethod:           domain.TokenSwapMethodExactOut,
+			simulatorAddress:     "osmo13t8prr8hu7hkuksnfrd25vpvvnrfxr223k59ph",
+			slippageToleranceStr: "0.01",
+			want:                 osmomath.MustNewDecFromStr("0.01"),
+
+			expectedError: true,
+		},
+		{
+			name:                 "invalid simulator address",
+			swapMethod:           domain.TokenSwapMethodExactIn,
+			simulatorAddress:     "invalid",
+			slippageToleranceStr: "0.01",
+			expectedError:        true,
+		},
+		{
+			name:                 "empty slippage tolerance",
+			swapMethod:           domain.TokenSwapMethodExactIn,
+			simulatorAddress:     "osmo13t8prr8hu7hkuksnfrd25vpvvnrfxr223k59ph",
+			slippageToleranceStr: "",
+			expectedError:        true,
+		},
+		{
+			name:                 "invalid slippage tolerance",
+			swapMethod:           domain.TokenSwapMethodExactIn,
+			simulatorAddress:     "osmo13t8prr8hu7hkuksnfrd25vpvvnrfxr223k59ph",
+			slippageToleranceStr: "invalid",
+			expectedError:        true,
+		},
+		{
+			name:                 "exact out with no simulator address or slippage tolerance",
+			swapMethod:           domain.TokenSwapMethodExactOut,
+			simulatorAddress:     "",
+			slippageToleranceStr: "",
+			want:                 osmomath.Dec{},
+		},
+		{
+			name:                 "exact in with no simulator address or slippage tolerance",
+			swapMethod:           domain.TokenSwapMethodExactIn,
+			simulatorAddress:     "",
+			slippageToleranceStr: "",
+			want:                 osmomath.Dec{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := types.ValidateSimulationParams(tt.swapMethod, tt.simulatorAddress, tt.slippageToleranceStr)
+			if tt.expectedError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

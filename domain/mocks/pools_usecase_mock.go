@@ -20,7 +20,7 @@ var _ mvc.PoolsUsecase = &PoolsUsecaseMock{}
 
 type PoolsUsecaseMock struct {
 	GetAllPoolsFunc                     func() ([]sqsdomain.PoolI, error)
-	GetPoolsFunc                        func(opts ...domain.PoolsOption) ([]sqsdomain.PoolI, error)
+	GetPoolsFunc                        func(opts ...domain.PoolsOption) ([]sqsdomain.PoolI, uint64, error)
 	StorePoolsFunc                      func(pools []sqsdomain.PoolI) error
 	GetRoutesFromCandidatesFunc         func(candidateRoutes sqsdomain.CandidateRoutes, tokenInDenom, tokenOutDenom string) ([]route.RouteImpl, error)
 	GetTickModelMapFunc                 func(poolIDs []uint64) (map[uint64]*sqsdomain.TickModel, error)
@@ -45,6 +45,12 @@ func (pm *PoolsUsecaseMock) GetAllCanonicalOrderbookPoolIDs() ([]domain.Canonica
 		return pm.GetAllCanonicalOrderbookPoolIDsFunc()
 	}
 	panic("unimplemented")
+}
+
+func (pm *PoolsUsecaseMock) WithGetAllCanonicalOrderbookPoolIDs(result []domain.CanonicalOrderBooksResult, err error) {
+	pm.GetAllCanonicalOrderbookPoolIDsFunc = func() ([]domain.CanonicalOrderBooksResult, error) {
+		return result, err
+	}
 }
 
 // GetCanonicalOrderbookPool implements mvc.PoolsUsecase.
@@ -73,7 +79,7 @@ func (pm *PoolsUsecaseMock) GetCosmWasmPoolConfig() domain.CosmWasmPoolRouterCon
 }
 
 // GetPools implements mvc.PoolsUsecase.
-func (pm *PoolsUsecaseMock) GetPools(opts ...domain.PoolsOption) ([]sqsdomain.PoolI, error) {
+func (pm *PoolsUsecaseMock) GetPools(opts ...domain.PoolsOption) ([]sqsdomain.PoolI, uint64, error) {
 	if pm.GetPoolsFunc != nil {
 		return pm.GetPoolsFunc(opts...)
 	}

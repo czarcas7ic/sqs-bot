@@ -8,7 +8,6 @@ import (
 
 	"github.com/mitchellh/mapstructure"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
-	osmocexplugindomain "github.com/osmosis-labs/sqs/domain/osmocex/plugin"
 	passthroughdomain "github.com/osmosis-labs/sqs/domain/passthrough"
 	"github.com/spf13/viper"
 )
@@ -145,8 +144,8 @@ var (
 			WorkerMinPoolLiquidityCap: 1,
 		},
 		Passthrough: &passthroughdomain.PassthroughConfig{
-			NumiaURL:                     "https://public-osmosis-api.numia.dev",
-			TimeseriesURL:                "https://stage-proxy-data-api.osmosis-labs.workers.dev",
+			NumiaURL:                     "https://data.app.osmosis.zone",
+			TimeseriesURL:                "https://data.stage.osmosis.zone",
 			APRFetchIntervalMinutes:      5,
 			PoolFeesFetchIntervalMinutes: 5,
 		},
@@ -158,11 +157,11 @@ var (
 			Plugins: []Plugin{
 				&OrderBookPluginConfig{
 					Enabled: false,
-					Name:    orderbookplugindomain.OrderBookPluginName,
+					Name:    orderbookplugindomain.OrderbookFillbotPlugin,
 				},
-				&OsmoCexPluginConfig{
-					Enabled: true,
-					Name:    osmocexplugindomain.OsmoCexPluginName,
+				&OrderBookPluginConfig{
+					Enabled: false,
+					Name:    orderbookplugindomain.OrderbookClaimbotPlugin,
 				},
 			},
 		},
@@ -309,24 +308,7 @@ func (o *OrderBookPluginConfig) IsEnabled() bool {
 	return o.Enabled
 }
 
-// OsmoCexPluginConfig encapsulates the Osmo CEX plugin configuration.
-type OsmoCexPluginConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Name    string `mapstructure:"name"`
-}
-
-// GetName implements Plugin.
-func (o *OsmoCexPluginConfig) GetName() string {
-	return o.Name
-}
-
-// IsEnabled implements Plugins.
-func (o *OsmoCexPluginConfig) IsEnabled() bool {
-	return o.Enabled
-}
-
 var _ Plugin = &OrderBookPluginConfig{}
-var _ Plugin = &OsmoCexPluginConfig{}
 
 type EndpointOTELConfig struct {
 	Quote float64 `mapstructure:"/router/quote"`
@@ -399,7 +381,9 @@ func validateDynamicMinLiquidityCapDesc(values []DynamicMinLiquidityCapFilterEnt
 // PluginFactory creates a Plugin instance based on the provided name.
 func PluginFactory(name string) Plugin {
 	switch name {
-	case orderbookplugindomain.OrderBookPluginName:
+	case orderbookplugindomain.OrderbookFillbotPlugin:
+		return &OrderBookPluginConfig{}
+	case orderbookplugindomain.OrderbookClaimbotPlugin:
 		return &OrderBookPluginConfig{}
 	// Add cases for other plugins as needed
 	default:

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -11,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
+	deliveryhttp "github.com/osmosis-labs/sqs/delivery/http"
 	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/domain/mvc"
 	"github.com/osmosis-labs/sqs/log"
@@ -19,9 +21,10 @@ import (
 
 // RouterHandler  represent the httphandler for the router
 type RouterHandler struct {
-	RUsecase mvc.RouterUsecase
-	TUsecase mvc.TokensUsecase
-	logger   log.Logger
+	RUsecase       mvc.RouterUsecase
+	TUsecase       mvc.TokensUsecase
+	QuoteSimulator domain.QuoteSimulator
+	logger         log.Logger
 }
 
 const routerResource = "/router"
@@ -35,11 +38,12 @@ func formatRouterResource(resource string) string {
 }
 
 // NewRouterHandler will initialize the pools/ resources endpoint
-func NewRouterHandler(e *echo.Echo, us mvc.RouterUsecase, tu mvc.TokensUsecase, logger log.Logger) {
+func NewRouterHandler(e *echo.Echo, us mvc.RouterUsecase, tu mvc.TokensUsecase, qs domain.QuoteSimulator, logger log.Logger) {
 	handler := &RouterHandler{
-		RUsecase: us,
-		TUsecase: tu,
-		logger:   logger,
+		RUsecase:       us,
+		TUsecase:       tu,
+		QuoteSimulator: qs,
+		logger:         logger,
 	}
 	e.GET(formatRouterResource("/quote"), handler.GetOptimalQuote)
 	e.GET(formatRouterResource("/routes"), handler.GetCandidateRoutes)
@@ -68,6 +72,9 @@ func NewRouterHandler(e *echo.Echo, us mvc.RouterUsecase, tu mvc.TokensUsecase, 
 // @Param  singleRoute     query  bool    false  "Boolean flag indicating whether to return single routes (no splits). False (splits enabled) by default."
 // @Param  humanDenoms     query  bool    true "Boolean flag indicating whether the given denoms are human readable or not. Human denoms get converted to chain internally"
 // @Param  applyExponents  query  bool    false  "Boolean flag indicating whether to apply exponents to the spot price. False by default."
+// @Param  simulatorAddress query string false "Address of the simulator to simulate the quote. If provided, the quote will be simulated."
+// @Param  simulationSlippageTolerance query string false "Slippage tolerance multiplier for the simulation. If simulatorAddress is provided, this must be provided."
+// @Param  appendBaseFee query bool false "Boolean flag indicating whether to append the base fee to the quote. False by default."
 // @Success 200  {object}  domain.Quote  "The computed best route quote"
 // @Router /router/quote [get]
 func (a *RouterHandler) GetOptimalQuote(c echo.Context) (err error) {
@@ -75,6 +82,11 @@ func (a *RouterHandler) GetOptimalQuote(c echo.Context) (err error) {
 
 	span := trace.SpanFromContext(ctx)
 	defer func() {
+		if r := recover(); r != nil {
+			// nolint:errcheck // ignore error
+			c.JSON(http.StatusInternalServerError, domain.ResponseError{Message: fmt.Sprintf("panic: %v", r)})
+		}
+
 		if err != nil {
 			span.RecordError(err)
 			// nolint:errcheck // ignore error
@@ -85,12 +97,7 @@ func (a *RouterHandler) GetOptimalQuote(c echo.Context) (err error) {
 	}()
 
 	var req types.GetQuoteRequest
-	if err := UnmarshalRequest(c, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, domain.ResponseError{Message: err.Error()})
-	}
-
-	// Validate the request
-	if err := req.Validate(); err != nil {
+	if err := deliveryhttp.ParseRequest(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, domain.ResponseError{Message: err.Error()})
 	}
 
@@ -143,6 +150,24 @@ func (a *RouterHandler) GetOptimalQuote(c echo.Context) (err error) {
 	span.SetAttributes(attribute.Stringer("token_out", quote.GetAmountOut()))
 	span.SetAttributes(attribute.Stringer("price_impact", quote.GetPriceImpact()))
 
+	// Simulate quote if applicable.
+	// Note: only single routes (non-splits) are supported for simulation.
+	// Additionally, the functionality is triggerred by the user providing a simulator address.
+	// Only "out given in" swap method is supported for simulation. Thus, we also check for tokenOutDenom being set.
+	simulatorAddress := req.SimulatorAddress
+	if req.SingleRoute && simulatorAddress != "" && req.SwapMethod() == domain.TokenSwapMethodExactIn {
+		priceInfo := a.QuoteSimulator.SimulateQuote(ctx, quote, req.SlippageToleranceMultiplier, simulatorAddress)
+
+		// Set the quote price info.
+		quote.SetQuotePriceInfo(&priceInfo)
+	}
+
+	if req.AppendBaseFee {
+		quote.SetQuotePriceInfo(&domain.TxFeeInfo{
+			BaseFee: a.RUsecase.GetBaseFee().CurrentFee,
+		})
+	}
+
 	return c.JSON(http.StatusOK, quote)
 }
 
@@ -178,12 +203,7 @@ func (a *RouterHandler) GetDirectCustomQuote(c echo.Context) (err error) {
 	}()
 
 	var req types.GetDirectCustomQuoteRequest
-	if err := UnmarshalRequest(c, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, domain.ResponseError{Message: err.Error()})
-	}
-
-	// Validate the request
-	if err := req.Validate(); err != nil {
+	if err := deliveryhttp.ParseRequest(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, domain.ResponseError{Message: err.Error()})
 	}
 
@@ -354,7 +374,7 @@ func (a *RouterHandler) getSpotPriceScalingFactor(tokenInDenom, tokenOutDenom st
 	if err != nil {
 		// Note that we do not fail the quote if scaling factor fetching fails.
 		// Instead, we simply set it to zero to validate future calculations downstream.
-		scalingFactor = sdk.ZeroDec()
+		scalingFactor = osmomath.ZeroDec()
 	}
 
 	return scalingFactor

@@ -8,6 +8,7 @@ import (
 )
 
 type Logger interface {
+	Named(s string) Logger
 	Info(msg string, fields ...zap.Field)
 	Warn(msg string, fields ...zap.Field)
 	Error(msg string, fields ...zap.Field)
@@ -34,6 +35,11 @@ func (*NoOpLogger) Info(msg string, fields ...zapcore.Field) {
 // Warn implements Logger.
 func (*NoOpLogger) Warn(msg string, fields ...zapcore.Field) {
 	// no-op
+}
+
+// Warn implements Logger.
+func (l *NoOpLogger) Named(s string) Logger {
+	return l
 }
 
 var _ Logger = (*NoOpLogger)(nil)
@@ -64,13 +70,25 @@ func (l *loggerImpl) Warn(msg string, fields ...zapcore.Field) {
 	l.zapLogger.Warn(msg, fields...)
 }
 
+func (l *loggerImpl) Named(s string) Logger {
+	return &loggerImpl{
+		zapLogger: *l.zapLogger.Named(s),
+	}
+}
+
 // NewLogger creates a new logger.
 // If fileName is non-empty, it pipes logs to file and stdout.
 // if filename is empty, it pipes logs only to stdout.
 func NewLogger(isProduction bool, fileName string, logLevelStr string) (Logger, error) {
-	loggerConfig := zap.NewProductionConfig()
-	if !isProduction {
-		loggerConfig = zap.NewDevelopmentConfig()
+	loggerConfig := zap.NewDevelopmentConfig()
+	if isProduction {
+		loggerConfig = zap.NewProductionConfig()
+
+		// Ensure JSON output
+		loggerConfig.Encoding = "json"
+
+		// Configure timestamp format
+		loggerConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	}
 
 	logLevel := zap.InfoLevel
@@ -107,5 +125,7 @@ func NewLogger(isProduction bool, fileName string, logLevelStr string) (Logger, 
 
 	logger.Info("log level", zap.Bool("is_debug", isDebugLevel), zap.String("log_level", loggerConfig.Level.String()))
 
-	return logger, nil
+	return &loggerImpl{
+		zapLogger: *logger,
+	}, nil
 }

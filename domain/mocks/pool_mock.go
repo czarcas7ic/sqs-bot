@@ -4,16 +4,17 @@ import (
 	"context"
 
 	"cosmossdk.io/math"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/osmosis-labs/sqs/domain"
-	passthroughdomain "github.com/osmosis-labs/sqs/domain/passthrough"
-	"github.com/osmosis-labs/sqs/sqsdomain"
-	"github.com/osmosis-labs/sqs/sqsdomain/cosmwasmpool"
 
 	"github.com/osmosis-labs/osmosis/osmomath"
-	"github.com/osmosis-labs/osmosis/v25/x/gamm/pool-models/balancer"
-	poolmanagertypes "github.com/osmosis-labs/osmosis/v25/x/poolmanager/types"
+	"github.com/osmosis-labs/sqs/domain"
+	api "github.com/osmosis-labs/sqs/pkg/api/v1beta1/pools"
+	"github.com/osmosis-labs/sqs/sqsdomain"
+	"github.com/osmosis-labs/sqs/sqsdomain/cosmwasmpool"
+	sqspassthroughdomain "github.com/osmosis-labs/sqs/sqsdomain/passthroughdomain"
+
+	"github.com/osmosis-labs/osmosis/v28/x/gamm/pool-models/balancer"
+	poolmanagertypes "github.com/osmosis-labs/osmosis/v28/x/poolmanager/types"
 )
 
 type MockRoutablePool struct {
@@ -32,31 +33,32 @@ type MockRoutablePool struct {
 	TakerFee          osmomath.Dec
 	SpreadFactor      osmomath.Dec
 	mockedTokenOut    sdk.Coin
+	IncentiveType     api.IncentiveType
 
-	APRData  passthroughdomain.PoolAPRDataStatusWrap
-	FeesData passthroughdomain.PoolFeesDataStatusWrap
+	APRData  sqspassthroughdomain.PoolAPRDataStatusWrap
+	FeesData sqspassthroughdomain.PoolFeesDataStatusWrap
 
 	PoolLiquidityCap      osmomath.Int
 	PoolLiquidityCapError string
 }
 
 // GetAPRData implements sqsdomain.PoolI.
-func (mp *MockRoutablePool) GetAPRData() passthroughdomain.PoolAPRDataStatusWrap {
+func (mp *MockRoutablePool) GetAPRData() sqspassthroughdomain.PoolAPRDataStatusWrap {
 	return mp.APRData
 }
 
 // GetFeesData implements sqsdomain.PoolI.
-func (mp *MockRoutablePool) GetFeesData() passthroughdomain.PoolFeesDataStatusWrap {
+func (mp *MockRoutablePool) GetFeesData() sqspassthroughdomain.PoolFeesDataStatusWrap {
 	return mp.FeesData
 }
 
 // SetAPRData implements sqsdomain.PoolI.
-func (mp *MockRoutablePool) SetAPRData(aprData passthroughdomain.PoolAPRDataStatusWrap) {
+func (mp *MockRoutablePool) SetAPRData(aprData sqspassthroughdomain.PoolAPRDataStatusWrap) {
 	mp.APRData = aprData
 }
 
 // SetFeesData implements sqsdomain.PoolI.
-func (mp *MockRoutablePool) SetFeesData(feesData passthroughdomain.PoolFeesDataStatusWrap) {
+func (mp *MockRoutablePool) SetFeesData(feesData sqspassthroughdomain.PoolFeesDataStatusWrap) {
 	mp.FeesData = feesData
 }
 
@@ -175,6 +177,10 @@ func (mp *MockRoutablePool) ChargeTakerFeeExactIn(tokenIn sdk.Coin) (tokenInAfte
 // GetTakerFee implements sqsdomain.PoolI.
 func (mp *MockRoutablePool) GetTakerFee() math.LegacyDec {
 	return mp.TakerFee
+}
+
+func (mp *MockRoutablePool) Incentive() api.IncentiveType {
+	return mp.IncentiveType
 }
 
 var _ sqsdomain.PoolI = &MockRoutablePool{}

@@ -1,9 +1,5 @@
-go 1.21.8
-
-toolchain go1.22.3
+go 1.22.7
 
 use .
 
 use ./sqsdomain
-
-replace github.com/cometbft/cometbft => github.com/osmosis-labs/cometbft v0.37.4-v23-osmo-3
