@@ -11,6 +11,10 @@
 			{
 				"name": "orderbook",
 				"enabled": true
+			},
+			{
+				"name": "osmocexfiller",
+				"enabled": false
 			}
 		]
 	}
