@@ -22,7 +22,6 @@ endif
 
 
 # --- Tooling & Variables ----------------------------------------------------------------
-include ./scripts/makefiles/proto.mk
 include ./misc/make/tools.Makefile
 
 # Install local dependencies
@@ -177,6 +176,9 @@ sqs-update-mainnet-state:
 bench-pricing:
 	go test -bench BenchmarkGetPrices -run BenchmarkGetPrices github.com/osmosis-labs/sqs/tokens/usecase -count=6
 
+proto-gen:
+	protoc --go_out=./ --go-grpc_out=./ --proto_path=./sqsdomain/proto ./sqsdomain/proto/ingest.proto
+
 test-prices-mainnet:
 	CI_SQS_PRICING_WORKER_TEST=true go test \
 		-timeout 300s \
@@ -226,40 +228,30 @@ datadog-agent-start:
 				-e DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317 \
 				gcr.io/datadoghq/agent:latest
 
-
-#### Orderbook plugins ####
-####
-#### Orderbook Fill Bot Plugin
+#### Order Book Fill Bot Plugin
 
 # Starts the full-scale order fill bot.
 # - Creates a copy of the config.json file with the updated
 #  order fill bot configuration.
 # Starts node and SQS in the background.
 # - Starts DataDog service
-# Use ./ingest/usecase/plugins/orderbook/fillbot/.env to configure the keyring.
-orderbook-fillbot-start:
-	./ingest/usecase/plugins/orderbook/fillbot/create_copy_config.sh
-	cd ./ingest/usecase/plugins/orderbook/fillbot && docker compose up -d
+# Use ./ingest/usecase/plugins/orderbookfiller/.env to configure the keyring.
+orderbook-filler-start:
+	./ingest/usecase/plugins/orderbookfiller/create_copy_config.sh
+	cd ./ingest/usecase/plugins/orderbookfiller && docker compose up -d
 	cd ../../../../
-	echo "Orderbook Fill Bot Started"
+	echo "Order Book Filler Bot Started"
 	sleep 10 && osmosisd status
 	sleep 10 && docker logs -f osmosis-sqs
 
-orderbook-fillbot-stop:
-	cd ./ingest/usecase/plugins/orderbook/fillbot && docker compose down
+orderbook-filler-stop:
+	cd ./ingest/usecase/plugins/orderbookfiller && docker compose down
 	cd ../../../../
-	echo "Orderbook Fill Bot Stopped"	
+	echo "Order Book Filler Bot Stopped"
 
-
-orderbook-claimbot-start:
-	./ingest/usecase/plugins/orderbook/fillbot/create_copy_config.sh
-	cd ./ingest/usecase/plugins/orderbook/claimbot && docker compose up -d
-	cd ../../../../
-	echo "Orderbook Claim Bot Started"
-	sleep 10 && osmosisd status
-	sleep 10 && docker logs -f osmosis-sqs
-
-orderbook-claimbot-stop:
-	cd ./ingest/usecase/plugins/orderbook/claimbot && docker compose down
-	cd ../../../../
-	echo "Orderbook Claim Bot Stopped"	
+orderbook-filler-cli-start:
+	OSMOSIS_KEYRING_PATH="/root/.osmosisd/keyring-test" \
+	OSMOSIS_KEYRING_PASSWORD="test" \
+	OSMOSIS_KEYRING_KEY_NAME="local.info" \
+	SQS_OTEL_ENVIRONMENT="sqs-local-debugger" \
+	go run ./app/main.go ./app/sidecar_query_server.go ./app/sqs_config.go --config config.json --host sqs-dev
