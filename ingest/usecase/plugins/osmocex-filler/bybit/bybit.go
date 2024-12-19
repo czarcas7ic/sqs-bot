@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/joho/godotenv"
 	"github.com/osmosis-labs/osmosis/osmomath"
 	"github.com/osmosis-labs/sqs/domain"
 	"github.com/osmosis-labs/sqs/domain/mvc"
@@ -103,21 +100,21 @@ var (
 	}
 )
 
-func init() {
-	// Init environmental variables from .env file
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("No caller information")
-	}
+// func init() {
+// 	// Init environmental variables from .env file
+// 	_, currentFile, _, ok := runtime.Caller(0)
+// 	if !ok {
+// 		panic("No caller information")
+// 	}
 
-	// Get the directory of the current file
-	currentDir := filepath.Dir(currentFile)
+// 	// Get the directory of the current file
+// 	currentDir := filepath.Dir(currentFile)
 
-	err := godotenv.Load(currentDir + "/.env")
-	if err != nil {
-		panic(err)
-	}
-}
+// 	err := godotenv.Load(currentDir + "/.env")
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// }
 
 func New(
 	ctx context.Context,
