@@ -12,7 +12,7 @@ services:
   #             "name": "exclude_p2p_module",
   #             "pattern": "\"module\":\\s*\".*p2p.*\""
   #           }]
-  #       }] 
+  #       }]
   #   environment:
   #     - DD_AGENT_HOST=dd-agent
   #     - OTEL_EXPORTER_OTLP_ENDPOINT=http://dd-agent:4317
@@ -42,12 +42,13 @@ services:
   #       tag: "{{.ImageName}}|{{.Name}}"
 
   osmosis-sqs:
+    network_mode: "host"
     environment:
-      - DD_AGENT_HOST=dd-agent
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://dd-agent:4317
-      - DD_SERVICE=sqs
-      - DD_ENV=prod
-      - DD_VERSION=25.0.0
+      # - DD_AGENT_HOST=dd-agent
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=http://dd-agent:4317
+      # - DD_SERVICE=sqs
+      # - DD_ENV=prod
+      # - DD_VERSION=25.0.0
       - OSMOSIS_KEYRING_PATH=${OSMOSIS_KEYRING_PATH}
       - OSMOSIS_KEYRING_PASSWORD=${OSMOSIS_KEYRING_PASSWORD}
       - OSMOSIS_KEYRING_KEY_NAME=${OSMOSIS_KEYRING_KEY_NAME}
@@ -60,6 +61,8 @@ services:
     command:
       - --host
       - sqs-fill-bot
+      - --config
+      - /etc/config.json
     build:
       context: ../../../../
       dockerfile: Dockerfile
@@ -67,10 +70,9 @@ services:
     #   - osmosis
     container_name: osmosis-sqs
     restart: always
-    ports:
-      - 9092:9092
     volumes:
       - ${OSMOSIS_KEYRING_PATH}:${OSMOSIS_KEYRING_PATH}
+      - ../../../../config.json:/etc/config.json
     logging:
       driver: "json-file"
       options:
@@ -90,7 +92,7 @@ services:
   #             {
   #               "openmetrics_endpoint": "http://droid:8080/metrics",
   #               "namespace": "osmosisd",
-  #               "metrics": 
+  #               "metrics":
   #                 [
   #                   {"osmosisd_info": "info"},
   #                   {"osmosisd_cur_eip_base_fee": "cur_eip_base_fee"}
@@ -110,7 +112,7 @@ services:
   #     - DD_ENV=prod
   #     - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317
   #     - DD_APM_ENABLED=true
-  #     - DD_LOGS_ENABLED=true 
+  #     - DD_LOGS_ENABLED=true
   #     - DD_LOGS_CONFIG_DOCKER_CONTAINER_FORCE_USE_FILE=true
   #     - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
   #     - DD_CONTAINER_EXCLUDE_LOGS=image:.*agent.* image:.*droid.*
@@ -140,7 +142,7 @@ services:
   #   environment:
   #     RPC_ENDPOINT: "http://osmosis:26657"
   #     LCD_ENDPOINT: "http://osmosis:1317"
-  #     EIP1559_ENABLED: "true" 
+  #     EIP1559_ENABLED: "true"
   #   logging:
   #     driver: "json-file"
   #     options:

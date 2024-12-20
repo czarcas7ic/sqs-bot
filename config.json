@@ -9,12 +9,8 @@
 	"grpc-ingester": {
 		"plugins": [
 			{
-				"name": "orderbook",
+				"name": "orderbook-fillbot-plugin",
 				"enabled": true
-			},
-			{
-				"name": "osmocexfiller",
-				"enabled": false
 			}
 		]
 	}
