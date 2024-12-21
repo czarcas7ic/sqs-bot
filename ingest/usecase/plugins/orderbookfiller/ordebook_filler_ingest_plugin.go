@@ -137,7 +137,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 		// skip orderbooks that already do not meet this requirement
 		// TODO: only makes sense if the address used has small amount of operable tokens
 		if err := o.validateUserBalances(blockCtx, canonicalOrderbook.Base, canonicalOrderbook.Quote); err != nil {
-			o.logger.Info("Skipping orderbook due to insufficient balance", zap.Error(err))
+			o.logger.Debug("Skipping orderbook due to insufficient balance", zap.Error(err))
 			ineligibleOrderbooks++
 			continue
 		}

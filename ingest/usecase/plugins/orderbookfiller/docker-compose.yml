@@ -76,8 +76,9 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "2048m"
+        max-size: "100m"
         max-file: "3"
+        compress: "true"
         tag: "{{.ImageName}}|{{.Name}}"
 
   # dd-agent:

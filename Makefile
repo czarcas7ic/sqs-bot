@@ -241,8 +241,8 @@ orderbook-filler-start:
 	cd ./ingest/usecase/plugins/orderbookfiller && docker compose up -d
 	cd ../../../../
 	echo "Order Book Filler Bot Started"
-	sleep 10 && osmosisd status
-	sleep 10 && docker logs -f osmosis-sqs
+	sleep 5 && osmosisd status
+	docker logs -f osmosis-sqs
 
 orderbook-filler-stop:
 	cd ./ingest/usecase/plugins/orderbookfiller && docker compose down
