@@ -42,7 +42,7 @@ func (o *orderbookFillerIngestPlugin) shouldSkipLowBalance(baseDenom string, bas
 	}
 
 	if baseAmountBalance.LT(minBaseValue) {
-		o.logger.Info("skipping orderbook processing due to low balance", zap.String("denom", baseDenom), zap.Stringer("balance", baseAmountBalance), zap.Stringer("min_balance", minBaseValue))
+		o.logger.Debug("skipping orderbook processing due to low balance", zap.String("denom", baseDenom), zap.Stringer("balance", baseAmountBalance), zap.Stringer("min_balance", minBaseValue))
 		return true, nil
 	}
 
