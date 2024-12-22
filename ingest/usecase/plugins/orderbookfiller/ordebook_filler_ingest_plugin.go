@@ -54,8 +54,6 @@ type orderBookProcessResult struct {
 
 const (
 	tracerName = "sqs-orderbook-filler"
-	// Reserve 0.5 OSMO for fees
-	osmoReserveFee = 500000
 )
 
 var (
@@ -269,21 +267,15 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 	// Choose max value between fillable amount and user balance
 	// This is so that we can at least partially fill if the user balance is less than the fillable amount.
 	userBalanceQuoteDenom := ctx.GetUserBalances().AmountOf(quoteDenom)
-	if quoteDenom == orderbookplugindomain.BaseDenom {
-		// Subtract fee reserve for OSMO
-		userBalanceQuoteDenom = userBalanceQuoteDenom.Sub(osmomath.NewInt(osmoReserveFee))
-	}
 	if userBalanceQuoteDenom.LT(fillableAskAmountQuoteDenom) {
+		fmt.Println(fillableAskAmountQuoteDenom, userBalanceQuoteDenom)
 		fillableAskAmountQuoteDenom = userBalanceQuoteDenom
 		o.logger.Warn("user balance less than fillable ask amount", zap.String("quote_denom", quoteDenom), zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
 	}
 
 	userBalanceBaseDenom := ctx.GetUserBalances().AmountOf(baseDenom)
-	if baseDenom == orderbookplugindomain.BaseDenom {
-		// Subtract fee reserve for OSMO
-		userBalanceBaseDenom = userBalanceBaseDenom.Sub(osmomath.NewInt(osmoReserveFee))
-	}
 	if userBalanceBaseDenom.LT(fillableBidAmountBaseDenom) {
+		fmt.Println(fillableBidAmountBaseDenom, userBalanceBaseDenom)
 		fillableBidAmountBaseDenom = userBalanceBaseDenom
 		o.logger.Warn("user balance less than fillable bid amount", zap.String("base_denom", baseDenom), zap.Uint64("orderbook_id", canonicalOrderbookResult.PoolID))
 	}
