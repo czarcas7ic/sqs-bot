@@ -56,8 +56,18 @@ func (o *orderbookFillerIngestPlugin) validateUserBalances(ctx blockctx.BlockCtx
 	userBlockBalances := ctx.GetUserBalances()
 	blockPrices := ctx.GetPrices()
 
+	// Reserve 2 OSMO (2000000uosmo) for transaction fees
+	reservedOsmo := osmomath.NewInt(2_000_000)
+
 	// Validate base denom balance
 	baseAmountBalance := userBlockBalances.AmountOf(baseDenom)
+	if baseDenom == orderbookplugindomain.BaseDenom {
+		// For OSMO, subtract the reserved amount
+		if baseAmountBalance.LTE(reservedOsmo) {
+			return fmt.Errorf("base denom (%s) balance %s is less than or equal to reserved amount for fees %s", baseDenom, baseAmountBalance, reservedOsmo)
+		}
+		baseAmountBalance = baseAmountBalance.Sub(reservedOsmo)
+	}
 	isBaseLowBalance, err := o.shouldSkipLowBalance(baseDenom, baseAmountBalance, blockPrices)
 	if err != nil {
 		return err
@@ -69,6 +79,13 @@ func (o *orderbookFillerIngestPlugin) validateUserBalances(ctx blockctx.BlockCtx
 
 	// Validate quote denom balance.
 	quoteAmountBalance := userBlockBalances.AmountOf(quoteDenom)
+	if quoteDenom == orderbookplugindomain.BaseDenom {
+		// For OSMO, subtract the reserved amount
+		if quoteAmountBalance.LTE(reservedOsmo) {
+			return fmt.Errorf("quote denom (%s) balance %s is less than or equal to reserved amount for fees %s", quoteDenom, quoteAmountBalance, reservedOsmo)
+		}
+		quoteAmountBalance = quoteAmountBalance.Sub(reservedOsmo)
+	}
 	isQuoteLowBalance, err := o.shouldSkipLowBalance(quoteDenom, quoteAmountBalance, blockPrices)
 	if err != nil {
 		return err

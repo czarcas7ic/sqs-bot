@@ -264,9 +264,20 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 		return err
 	}
 
+	// Reserve 2 OSMO (2000000uosmo) for transaction fees
+	reservedOsmo := osmomath.NewInt(2_000_000)
+
 	// Choose max value between fillable amount and user balance
 	// This is so that we can at least partially fill if the user balance is less than the fillable amount.
 	userBalanceQuoteDenom := ctx.GetUserBalances().AmountOf(quoteDenom)
+	if quoteDenom == orderbookplugindomain.BaseDenom {
+		// For OSMO, subtract the reserved amount
+		if userBalanceQuoteDenom.LTE(reservedOsmo) {
+			o.logger.Error("quote denom OSMO balance too low for fees", zap.String("balance", userBalanceQuoteDenom.String()))
+			return fmt.Errorf("quote denom OSMO balance %s too low for fees", userBalanceQuoteDenom)
+		}
+		userBalanceQuoteDenom = userBalanceQuoteDenom.Sub(reservedOsmo)
+	}
 	if userBalanceQuoteDenom.LT(fillableAskAmountQuoteDenom) {
 		fmt.Println(fillableAskAmountQuoteDenom, userBalanceQuoteDenom)
 		fillableAskAmountQuoteDenom = userBalanceQuoteDenom
@@ -274,6 +285,14 @@ func (o *orderbookFillerIngestPlugin) processOrderBook(ctx blockctx.BlockCtxI, c
 	}
 
 	userBalanceBaseDenom := ctx.GetUserBalances().AmountOf(baseDenom)
+	if baseDenom == orderbookplugindomain.BaseDenom {
+		// For OSMO, subtract the reserved amount
+		if userBalanceBaseDenom.LTE(reservedOsmo) {
+			o.logger.Error("base denom OSMO balance too low for fees", zap.String("balance", userBalanceBaseDenom.String()))
+			return fmt.Errorf("base denom OSMO balance %s too low for fees", userBalanceBaseDenom)
+		}
+		userBalanceBaseDenom = userBalanceBaseDenom.Sub(reservedOsmo)
+	}
 	if userBalanceBaseDenom.LT(fillableBidAmountBaseDenom) {
 		fmt.Println(fillableBidAmountBaseDenom, userBalanceBaseDenom)
 		fillableBidAmountBaseDenom = userBalanceBaseDenom
