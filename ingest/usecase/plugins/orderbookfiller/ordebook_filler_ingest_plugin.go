@@ -330,15 +330,6 @@ var (
 // It tries to prefer a higher amount if it exists in order to fill all orders in-full while maximizing profit.
 // nolint: unparam
 func (o *orderbookFillerIngestPlugin) computePerfectArbAmountIfExists(ctx blockctx.BlockCtxI, proposedAmountIn osmomath.Int, denomIn, denomOut string, orderBookID uint64) (osmomath.Int, error) {
-	// If the denom is OSMO, subtract the fee reserve from the proposed amount
-	if denomIn == orderbookplugindomain.BaseDenom {
-		// Ensure we have enough for fees
-		if proposedAmountIn.LTE(osmomath.NewInt(osmoReserveFee)) {
-			return osmomath.Int{}, fmt.Errorf("proposed amount %s is less than or equal to fee reserve %d", proposedAmountIn, osmoReserveFee)
-		}
-		proposedAmountIn = proposedAmountIn.Sub(osmomath.NewInt(osmoReserveFee))
-	}
-
 	// If the initial proposed amount in is not valid, return error.
 	msgCtx, err := o.validateArb(ctx, proposedAmountIn, denomIn, denomOut, orderBookID)
 	if err != nil {
