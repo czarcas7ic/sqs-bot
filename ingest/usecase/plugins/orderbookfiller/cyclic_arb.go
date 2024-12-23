@@ -17,6 +17,15 @@ import (
 func (o *orderbookFillerIngestPlugin) estimateCyclicArb(ctx blockctx.BlockCtxI, coinIn sdk.Coin, denomOut string, canonicalOrderbookPoolId uint64) (osmomath.Int, []domain.RoutablePool, error) {
 	o.logger.Debug("estimating cyclic arb", zap.Uint64("orderbook_id", canonicalOrderbookPoolId), zap.Stringer("denom_in", coinIn), zap.String("denom_out", denomOut))
 
+	// Reserve 2 OSMO (2000000 uosmo) for transaction fees if the input token is OSMO
+	if coinIn.Denom == Denom {
+		reservedOsmo := osmomath.NewInt(2_000_000) // 2 OSMO in uosmo
+		if coinIn.Amount.LTE(reservedOsmo) {
+			return osmomath.Int{}, nil, fmt.Errorf("insufficient OSMO balance for fees: have %s, need %s", coinIn.Amount, reservedOsmo)
+		}
+		coinIn = sdk.NewCoin(Denom, coinIn.Amount.Sub(reservedOsmo))
+	}
+
 	goCtx := ctx.AsGoCtx()
 
 	baseInOrderbookQuote, err := o.routerUseCase.GetCustomDirectQuote(goCtx, coinIn, denomOut, canonicalOrderbookPoolId)
@@ -52,6 +61,15 @@ func (o *orderbookFillerIngestPlugin) estimateCyclicArb(ctx blockctx.BlockCtxI, 
 func (o *orderbookFillerIngestPlugin) validateArb(ctx blockctx.BlockCtxI, amountIn osmomath.Int, denomIn, denomOut string, orderBookID uint64) (msgctx.MsgContextI, error) {
 	if amountIn.IsNil() || amountIn.IsZero() {
 		return nil, fmt.Errorf("estimated amount in truncated to zero")
+	}
+
+	// Reserve 2 OSMO (2000000 uosmo) for transaction fees if the input token is OSMO
+	if denomIn == Denom {
+		reservedOsmo := osmomath.NewInt(2_000_000) // 2 OSMO in uosmo
+		if amountIn.LTE(reservedOsmo) {
+			return nil, fmt.Errorf("insufficient OSMO balance for fees: have %s, need %s", amountIn, reservedOsmo)
+		}
+		amountIn = amountIn.Sub(reservedOsmo)
 	}
 
 	coinIn := sdk.Coin{Denom: denomIn, Amount: amountIn}
