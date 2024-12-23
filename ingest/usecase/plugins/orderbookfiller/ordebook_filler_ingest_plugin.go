@@ -132,6 +132,15 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 
 	ineligibleOrderbooks := 0
 	for _, canonicalOrderbook := range canonicalOrderbooks {
+		// TODO: This is a temp hack, we keep getting errors about OSMO balance being too low bc it isn't taking
+		// into account the fees needed for the tx itself.
+		// Skip orderbooks that involve OSMO as either base or quote token
+		if canonicalOrderbook.Base == Denom || canonicalOrderbook.Quote == Denom {
+			o.logger.Debug("Skipping orderbook involving OSMO", zap.Uint64("orderbook_id", canonicalOrderbook.PoolID))
+			ineligibleOrderbooks++
+			continue
+		}
+
 		// skip orderbooks that already do not meet this requirement
 		// TODO: only makes sense if the address used has small amount of operable tokens
 		if err := o.validateUserBalances(blockCtx, canonicalOrderbook.Base, canonicalOrderbook.Quote); err != nil {
