@@ -9,7 +9,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/osmosis-labs/osmosis/osmomath v0.0.15
 	github.com/osmosis-labs/osmosis/v28 v28.0.0-20241203152623-9a5d42a415b7
-	github.com/osmosis-labs/sqs v0.19.4-0.20241203132855-a211412c429b
+	github.com/osmosis-labs/sqs v0.19.3
 	github.com/stretchr/testify v1.10.0
 	google.golang.org/grpc v1.68.0
 	google.golang.org/protobuf v1.35.2
